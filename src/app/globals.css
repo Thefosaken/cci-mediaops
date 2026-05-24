@@ -74,9 +74,9 @@
 :root {
   color-scheme: light;
 
-  --brand-red: #C5322D;
-  --brand-red-dark: #A92724;
-  --brand-red-soft: rgba(197, 50, 45, 0.12);
+  --brand-red: #D32126;
+  --brand-red-dark: #B01A1F;
+  --brand-red-soft: rgba(211, 33, 38, 0.12);
   --brand-yellow: #F9F152;
   --brand-white: #FFFFFF;
 
@@ -90,7 +90,7 @@
   --text-muted: #666B74;
   --text-faint: #8E939E;
   --disabled: #B9BDC6;
-  --focus: #C5322D;
+  --focus: #D32126;
 
   --success: #16803C;
   --success-soft: #EAF8EF;
@@ -165,7 +165,7 @@ body {
 }
 
 ::selection {
-  background: var(--brand-red-soft);
+  background: rgba(211, 33, 38, 0.15);
   color: var(--brand-red);
 }
 

@@ -3,7 +3,6 @@
 import { Bell, LogOut, User, Menu, Moon, Sun } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useTheme } from "@/lib/theme/theme-context"
-import { cn } from "@/lib/utils/cn"
 
 interface NavbarProps {
   onMenuClick?: () => void
@@ -36,6 +35,9 @@ export function Navbar({ onMenuClick, title }: NavbarProps) {
         )}
       </div>
       <div className="flex items-center gap-1">
+        <span className="hidden sm:inline-flex items-center rounded-full border border-border bg-surface-subtle px-2.5 py-0.5 text-[11px] font-medium text-muted tracking-wide mr-1">
+          Internal Tool
+        </span>
         <button
           onClick={toggle}
           className="rounded-lg p-2 text-muted hover:text-foreground hover:bg-surface-subtle transition-colors duration-150"

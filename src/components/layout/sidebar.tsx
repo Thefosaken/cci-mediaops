@@ -18,6 +18,7 @@ import {
   Settings,
   X,
 } from "lucide-react"
+import { Logo } from "@/components/ui/logo"
 
 const iconMap: Record<string, React.ReactNode> = {
   LayoutDashboard: <LayoutDashboard className="h-4 w-4" />,
@@ -40,10 +41,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     <aside className="flex h-full w-64 flex-col border-r border-border bg-surface">
       <div className="flex h-16 items-center justify-between border-b border-border px-5">
         <Link href="/dashboard" className="flex items-center gap-2.5" onClick={onClose}>
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-white text-xs font-bold">
-            C
-          </div>
-          <span className="text-[15px] font-semibold text-foreground">CCI MediaOps</span>
+          <Logo />
         </Link>
         {onClose && (
           <button onClick={onClose} className="rounded-md p-1.5 text-muted hover:text-foreground hover:bg-surface-subtle">
