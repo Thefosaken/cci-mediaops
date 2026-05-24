@@ -1,13 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { SubTeam } from "@/types"
+import { Select } from "@/components/ui/select"
+import { Modal } from "@/components/ui/modal"
+import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/ui/empty-state"
+import { FormField } from "@/components/ui/form-field"
+import { useToast } from "@/lib/toast/toast-context"
+import { Wrench, Plus, MapPin, Tag } from "lucide-react"
+import { cn } from "@/lib/utils/cn"
 
 interface EquipmentItem {
   id: string
@@ -22,6 +27,42 @@ interface EquipmentItem {
   notes: string | null
 }
 
+function conditionVariant(status: string) {
+  switch (status) {
+    case "good":         return "success" as const
+    case "faulty":
+    case "missing":      return "danger" as const
+    case "under_repair": return "warning" as const
+    default:             return "muted" as const
+  }
+}
+
+function availabilityVariant(status: string) {
+  switch (status) {
+    case "available":  return "success" as const
+    case "checked_out":return "warning" as const
+    case "in_repair":  return "info" as const
+    case "retired":    return "muted" as const
+    default:           return "muted" as const
+  }
+}
+
+const EMPTY_FORM = {
+  name: "",
+  subTeamId: "",
+  category: "",
+  assetTag: "",
+  conditionStatus: "good",
+  storageLocation: "",
+}
+
+const CONDITION_OPTIONS = [
+  { value: "good",         label: "Good" },
+  { value: "fair",         label: "Fair" },
+  { value: "faulty",       label: "Faulty" },
+  { value: "under_repair", label: "Under Repair" },
+]
+
 export function EquipmentPageClient({
   items,
   subTeams,
@@ -30,160 +71,177 @@ export function EquipmentPageClient({
   subTeams: { id: string; name: string }[]
 }) {
   const router = useRouter()
-  const [showForm, setShowForm] = useState(false)
+  const { success, error: showError } = useToast()
+  const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [filterTeam, setFilterTeam] = useState("")
-  const [form, setForm] = useState({
-    name: "",
-    subTeamId: "",
-    category: "",
-    assetTag: "",
-    conditionStatus: "good",
-    storageLocation: "",
-  })
+  const [form, setForm] = useState(EMPTY_FORM)
 
-  const filtered = filterTeam
-    ? items.filter((i) => i.sub_team_id === filterTeam)
-    : items
+  const subTeamOptions = [
+    { value: "", label: "Select sub-team…" },
+    ...subTeams.map((st) => ({ value: st.id, label: st.name })),
+  ]
+
+  const filtered = filterTeam ? items.filter((i) => i.sub_team_id === filterTeam) : items
+
+  const closeModal = useCallback(() => {
+    setShowModal(false)
+    setForm(EMPTY_FORM)
+  }, [])
 
   async function addItem(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim() || !form.subTeamId) return
     setLoading(true)
-    const supabase = createClient()
-
-    const { data: campus } = await supabase.from("campuses").select("id").limit(1).single()
-
-    await supabase.from("equipment_items").insert({
-      campus_id: campus?.id,
-      sub_team_id: form.subTeamId,
-      name: form.name,
-      category: form.category || null,
-      asset_tag: form.assetTag || null,
-      condition_status: form.conditionStatus,
-      storage_location: form.storageLocation || null,
-    })
-
-    setShowForm(false)
-    setForm({ name: "", subTeamId: "", category: "", assetTag: "", conditionStatus: "good", storageLocation: "" })
-    setLoading(false)
-    router.refresh()
+    try {
+      const supabase = createClient()
+      const { data: campus } = await supabase.from("campuses").select("id").limit(1).single()
+      const { error } = await supabase.from("equipment_items").insert({
+        campus_id: campus?.id,
+        sub_team_id: form.subTeamId,
+        name: form.name,
+        category: form.category || null,
+        asset_tag: form.assetTag || null,
+        condition_status: form.conditionStatus,
+        storage_location: form.storageLocation || null,
+      })
+      if (error) throw error
+      closeModal()
+      success("Equipment item added.")
+      router.refresh()
+    } catch { showError("Failed to add item.") }
+    finally { setLoading(false) }
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 lg:p-8 space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Equipment</h1>
-          <p className="text-sm text-muted">Track equipment per sub-team</p>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Equipment</h1>
+          <p className="text-sm text-muted mt-0.5">Track gear and assets per sub-team</p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
-          {showForm ? "Cancel" : "Add Item"}
+        <Button onClick={() => setShowModal(true)}>
+          <Plus className="h-4 w-4" />
+          Add Item
         </Button>
       </div>
 
-      {showForm && (
-        <Card>
-          <CardHeader><CardTitle>Add Equipment Item</CardTitle></CardHeader>
-          <CardContent>
-            <form onSubmit={addItem} className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Item Name</Label>
-                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-              </div>
-              <div className="space-y-2">
-                <Label>Sub-Team</Label>
-                <select
-                  className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
-                  value={form.subTeamId}
-                  onChange={(e) => setForm({ ...form, subTeamId: e.target.value })}
-                  required
-                >
-                  <option value="">Select...</option>
-                  {subTeams.map((st) => (
-                    <option key={st.id} value={st.id}>{st.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label>Category</Label>
-                <Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Asset Tag</Label>
-                <Input value={form.assetTag} onChange={(e) => setForm({ ...form, assetTag: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Condition</Label>
-                <select
-                  className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
-                  value={form.conditionStatus}
-                  onChange={(e) => setForm({ ...form, conditionStatus: e.target.value })}
-                >
-                  <option value="good">Good</option>
-                  <option value="fair">Fair</option>
-                  <option value="faulty">Faulty</option>
-                  <option value="under_repair">Under Repair</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label>Storage Location</Label>
-                <Input value={form.storageLocation} onChange={(e) => setForm({ ...form, storageLocation: e.target.value })} />
-              </div>
-              <div className="md:col-span-2">
-                <Button type="submit" disabled={loading}>Add Item</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="flex gap-2">
-        <button
-          onClick={() => setFilterTeam("")}
-          className={`rounded-full px-3 py-1 text-xs font-medium ${!filterTeam ? "bg-primary text-primary-foreground" : "bg-secondary"}`}
-        >
-          All
-        </button>
-        {subTeams.map((st) => (
+      {/* Filter pills */}
+      <div className="flex gap-1.5 flex-wrap">
+        {[{ id: "", name: "All" }, ...subTeams].map((st) => (
           <button
             key={st.id}
+            type="button"
             onClick={() => setFilterTeam(st.id)}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${filterTeam === st.id ? "bg-primary text-primary-foreground" : "bg-secondary"}`}
+            className={cn(
+              "inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150",
+              filterTeam === st.id
+                ? "bg-primary-soft text-primary border border-primary/20"
+                : "bg-surface border border-border text-muted hover:text-foreground hover:border-border-strong"
+            )}
           >
             {st.name}
           </button>
         ))}
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((item) => (
-          <div key={item.id} className="rounded-lg border bg-surface p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="font-medium">{item.name}</p>
-                <p className="text-xs text-muted">{item.sub_teams?.name}</p>
-              </div>
-              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                item.condition_status === "good" ? "bg-green-100 text-green-800" :
-                item.condition_status === "faulty" ? "bg-red-100 text-red-800" :
-                "bg-yellow-100 text-yellow-800"
-              }`}>
-                {item.condition_status.replace(/_/g, " ")}
-              </span>
-            </div>
-            {item.category && <p className="mt-1 text-xs text-muted">{item.category}</p>}
-            {item.asset_tag && <p className="text-xs text-muted">Tag: {item.asset_tag}</p>}
-            {item.storage_location && <p className="text-xs text-muted">📍 {item.storage_location}</p>}
-            <p className="mt-2 text-xs capitalize">Status: {item.availability_status.replace(/_/g, " ")}</p>
-          </div>
-        ))}
-        {filtered.length === 0 && (
-          <div className="col-span-full rounded-lg border bg-surface p-8 text-center text-muted">
-            No equipment items.
-          </div>
+        {filtered.length > 0 && (
+          <span className="ml-auto self-center text-xs text-faint tabular-nums">
+            {filtered.length} {filtered.length === 1 ? "item" : "items"}
+          </span>
         )}
       </div>
+
+      {/* Equipment grid */}
+      {filtered.length === 0 ? (
+        <EmptyState
+          icon={<Wrench className="h-5 w-5" />}
+          title="No equipment items"
+          description={filterTeam ? "Try a different filter." : "Add your first piece of equipment."}
+          action={!filterTeam ? { label: "Add Item", onClick: () => setShowModal(true) } : undefined}
+        />
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-xl border border-border bg-surface p-4 hover:border-border-strong transition-colors duration-150"
+            >
+              {/* Name + condition */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{item.name}</p>
+                  <p className="text-xs text-faint">{item.sub_teams?.name}</p>
+                </div>
+                <Badge variant={conditionVariant(item.condition_status)} dot className="shrink-0">
+                  {item.condition_status.replace(/_/g, " ")}
+                </Badge>
+              </div>
+
+              {/* Meta row */}
+              <div className="mt-3 flex flex-col gap-1">
+                {item.category && (
+                  <span className="flex items-center gap-1.5 text-xs text-muted">
+                    <Tag className="h-3 w-3 text-faint" aria-hidden="true" />
+                    {item.category}
+                  </span>
+                )}
+                {item.asset_tag && (
+                  <span className="text-xs text-faint font-mono">#{item.asset_tag}</span>
+                )}
+                {item.storage_location && (
+                  <span className="flex items-center gap-1.5 text-xs text-muted">
+                    <MapPin className="h-3 w-3 text-faint" aria-hidden="true" />
+                    {item.storage_location}
+                  </span>
+                )}
+              </div>
+
+              {/* Availability */}
+              <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
+                <span className="text-xs text-faint">Availability</span>
+                <Badge variant={availabilityVariant(item.availability_status)} dot>
+                  {item.availability_status.replace(/_/g, " ")}
+                </Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add item modal */}
+      <Modal
+        open={showModal}
+        onClose={closeModal}
+        title="Add Equipment Item"
+        description="Register a new piece of gear or asset."
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeModal} disabled={loading}>Cancel</Button>
+            <Button type="submit" form="add-equipment-form" loading={loading} disabled={loading}>Add Item</Button>
+          </>
+        }
+      >
+        <form id="add-equipment-form" onSubmit={addItem} className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Item name" required className="sm:col-span-2">
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Shure SM58 Microphone" required />
+          </FormField>
+          <FormField label="Sub-team" required>
+            <Select value={form.subTeamId} onChange={(v) => setForm({ ...form, subTeamId: v })} options={subTeamOptions} aria-label="Sub-team" />
+          </FormField>
+          <FormField label="Category" helper="Optional">
+            <Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="e.g. Microphone" />
+          </FormField>
+          <FormField label="Asset tag" helper="Optional">
+            <Input value={form.assetTag} onChange={(e) => setForm({ ...form, assetTag: e.target.value })} placeholder="e.g. CCI-001" />
+          </FormField>
+          <FormField label="Condition">
+            <Select value={form.conditionStatus} onChange={(v) => setForm({ ...form, conditionStatus: v })} options={CONDITION_OPTIONS} aria-label="Condition status" />
+          </FormField>
+          <FormField label="Storage location" helper="Optional" className="sm:col-span-2">
+            <Input value={form.storageLocation} onChange={(e) => setForm({ ...form, storageLocation: e.target.value })} placeholder="e.g. AV Cupboard, Shelf 2" />
+          </FormField>
+        </form>
+      </Modal>
     </div>
   )
 }

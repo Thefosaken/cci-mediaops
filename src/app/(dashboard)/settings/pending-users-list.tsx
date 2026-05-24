@@ -3,7 +3,11 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Select } from "@/components/ui/select"
+import { EmptyState } from "@/components/ui/empty-state"
+import { useToast } from "@/lib/toast/toast-context"
 import { createClient } from "@/lib/supabase/client"
+import { UserCheck } from "lucide-react"
 
 interface PendingUser {
   id: string
@@ -18,87 +22,87 @@ interface Role {
   description: string | null
 }
 
-export function PendingUsersList({
-  users,
-  roles,
-}: {
-  users: PendingUser[]
-  roles: Role[]
-}) {
+function UserInitials({ name }: { name: string }) {
+  const initials = name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase()
+  return (
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-subtle border border-border text-xs font-semibold text-muted select-none">
+      {initials}
+    </div>
+  )
+}
+
+export function PendingUsersList({ users, roles }: { users: PendingUser[]; roles: Role[] }) {
   const router = useRouter()
+  const { success, error: showError, warning } = useToast()
   const [selectedRole, setSelectedRole] = useState<Record<string, string>>({})
 
+  const roleOptions = [
+    { value: "", label: "Select role…" },
+    ...roles.map((r) => ({ value: r.id, label: r.name.replace(/_/g, " ") })),
+  ]
+
   async function approveUser(userId: string) {
-    const supabase = createClient()
     const roleId = selectedRole[userId]
-
     if (!roleId) {
-      alert("Please select a role before approving")
+      warning("Please select a role before approving.")
       return
     }
 
-    const { error } = await supabase
-      .from("users")
-      .update({ status: "active" })
-      .eq("id", userId)
-
-    if (error) {
-      alert(error.message)
-      return
-    }
+    const supabase = createClient()
+    const { error } = await supabase.from("users").update({ status: "active" }).eq("id", userId)
+    if (error) { showError(error.message); return }
 
     const user = users.find((u) => u.id === userId)
     const membershipId = user?.campus_memberships?.[0]?.id
-
     if (membershipId) {
-      await supabase
-        .from("campus_memberships")
-        .update({ role_id: roleId, status: "active" })
-        .eq("id", membershipId)
+      await supabase.from("campus_memberships").update({ role_id: roleId, status: "active" }).eq("id", membershipId)
     }
 
+    success("User approved and activated.")
     router.refresh()
   }
 
   async function rejectUser(userId: string) {
     const supabase = createClient()
     await supabase.from("users").update({ status: "suspended" }).eq("id", userId)
+    success("User rejected.")
     router.refresh()
   }
 
   if (users.length === 0) return null
 
   return (
-    <div className="rounded-lg border bg-surface p-6">
-      <h2 className="font-semibold mb-4">Pending Approvals ({users.length})</h2>
-      <div className="space-y-4">
+    <div className="rounded-xl border border-border bg-surface">
+      <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+        <p className="text-[13px] font-semibold text-foreground">Pending Users</p>
+        <span className="inline-flex items-center rounded-md bg-warning-soft text-warning border border-warning/20 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
+          {users.length}
+        </span>
+      </div>
+      <div className="p-5 space-y-3">
         {users.map((user) => (
-          <div key={user.id} className="flex items-center justify-between rounded-md border p-4">
-            <div>
-              <p className="font-medium text-sm">{user.full_name}</p>
-              <p className="text-sm text-muted">{user.email}</p>
+          <div
+            key={user.id}
+            className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border border-border bg-canvas px-4 py-3"
+          >
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <UserInitials name={user.full_name ?? "?"} />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{user.full_name}</p>
+                <p className="text-xs text-faint truncate">{user.email}</p>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <select
-                className="rounded-md border border bg-canvas px-3 py-1.5 text-sm"
-                value={selectedRole[user.id] ?? ""}
-                onChange={(e) =>
-                  setSelectedRole((prev) => ({ ...prev, [user.id]: e.target.value }))
-                }
-              >
-                <option value="">Select role...</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name.replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
-              <Button size="sm" onClick={() => approveUser(user.id)}>
-                Approve
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => rejectUser(user.id)}>
-                Reject
-              </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="w-40">
+                <Select
+                  value={selectedRole[user.id] ?? ""}
+                  onChange={(v) => setSelectedRole((p) => ({ ...p, [user.id]: v }))}
+                  options={roleOptions}
+                  aria-label={`Role for ${user.full_name}`}
+                />
+              </div>
+              <Button size="sm" onClick={() => approveUser(user.id)}>Approve</Button>
+              <Button size="sm" variant="secondary" onClick={() => rejectUser(user.id)}>Reject</Button>
             </div>
           </div>
         ))}

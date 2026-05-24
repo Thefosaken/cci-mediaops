@@ -155,7 +155,7 @@ export function CalendarPageClient({
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Calendar</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Calendar</h1>
           <p className="text-sm text-muted mt-0.5">Services, events, rehearsals, and deadlines</p>
         </div>
         <Button onClick={openModal}>
@@ -193,8 +193,8 @@ export function CalendarPageClient({
                     <div
                       key={event.id}
                       className={cn(
-                        "flex items-center gap-4 rounded-xl border border-border bg-surface px-4 py-3.5 shadow-sm",
-                        "border-l-[3px] transition-all duration-150 hover:shadow-md hover:border-border-strong",
+                        "flex items-center gap-4 rounded-xl border border-border bg-surface px-4 py-3.5",
+                        "transition-colors duration-150 hover:border-border-strong",
                         typeColor
                       )}
                     >

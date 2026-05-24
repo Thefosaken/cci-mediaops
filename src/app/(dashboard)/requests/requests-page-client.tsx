@@ -161,7 +161,7 @@ export function RequestsPageClient({
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Requests</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Requests</h1>
           <p className="text-sm text-muted mt-0.5">Submit, route, and manage media requests</p>
         </div>
         <Button onClick={openModal}>
@@ -209,12 +209,8 @@ export function RequestsPageClient({
             <div
               key={req.id}
               className={cn(
-                "flex items-start gap-4 rounded-xl border border-border bg-surface px-4 py-4 shadow-sm",
-                "border-l-[3px] transition-all duration-150 hover:shadow-md hover:border-border-strong",
-                req.priority === "urgent" ? "border-l-danger" :
-                req.priority === "high"   ? "border-l-warning" :
-                req.priority === "low"    ? "border-l-border"  :
-                "border-l-border"
+                "flex items-start gap-4 rounded-xl border border-border bg-surface px-4 py-4",
+                "transition-colors duration-150 hover:border-border-strong"
               )}
             >
               <div className="flex-1 min-w-0 space-y-1.5">
