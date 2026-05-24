@@ -23,6 +23,7 @@ import { FormField } from "@/components/ui/form-field"
 import { Avatar } from "@/components/ui/avatar"
 import { Switch } from "@/components/ui/switch"
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { approveUserWithRole, rejectPendingUser } from "@/server/actions/onboarding"
 
 interface Role { id: string; name: string; description: string | null }
 interface SubTeam { id: string; name: string; description: string | null; status: string }
@@ -419,21 +420,17 @@ function UsersSection({
   async function approve(userId: string) {
     const roleId = selectedRole[userId]
     if (!roleId) { warning("Choose a role first"); return }
-    const supabase = createClient()
-    const { error } = await supabase.from("users").update({ status: "active" }).eq("id", userId)
-    if (error) { toastError(error.message); return }
-    const user = pendingUsers.find((u) => u.id === userId)
-    const membershipId = user?.campus_memberships?.[0]?.id
-    if (membershipId) {
-      await supabase.from("campus_memberships").update({ role_id: roleId, status: "active" }).eq("id", membershipId)
-    }
-    success("User activated"); router.refresh()
+    const r = await approveUserWithRole(userId, roleId)
+    if (!r.success) { toastError(r.error); return }
+    success("User activated and notified")
+    router.refresh()
   }
 
   async function reject(userId: string) {
-    const supabase = createClient()
-    await supabase.from("users").update({ status: "suspended" }).eq("id", userId)
-    success("User rejected"); router.refresh()
+    const r = await rejectPendingUser(userId)
+    if (!r.success) { toastError(r.error); return }
+    success("User rejected")
+    router.refresh()
   }
 
   async function suspend(userId: string) {

@@ -36,7 +36,8 @@ export async function requireAuth() {
     redirect("/login")
   }
   if (user.status === "pending") {
-    redirect("/login?message=Your+account+is+pending+approval")
+    // Authenticated but not approved — show the dedicated waiting screen.
+    redirect("/pending")
   }
   return user
 }

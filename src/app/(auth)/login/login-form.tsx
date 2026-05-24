@@ -44,15 +44,21 @@ export function LoginForm() {
       .eq("auth_user_id", authUser.id)
       .single()
 
-    if (user && user.status === "pending") {
-      await supabase.auth.signOut()
-      setError("Your account is pending approval. An admin will activate it shortly.")
-      setLoading(false)
-      return
-    }
     if (!user) {
       await supabase.auth.signOut()
       setError("Account not found. Please contact an admin.")
+      setLoading(false)
+      return
+    }
+
+    if (user.status === "pending") {
+      // Leave them signed-in and route to the dedicated waiting page.
+      window.location.href = "/pending"
+      return
+    }
+    if (user.status === "suspended" || user.status === "inactive") {
+      await supabase.auth.signOut()
+      setError(`Your account is ${user.status}. Contact an admin to restore access.`)
       setLoading(false)
       return
     }

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { FormField } from "@/components/ui/form-field"
 import { AlertCircle, ArrowRight, MailCheck } from "lucide-react"
+import { notifyAdminsOfNewSignup } from "@/server/actions/onboarding"
 
 export default function SignUpPage() {
   const router = useRouter()
@@ -25,7 +26,7 @@ export default function SignUpPage() {
     setError(null)
 
     const supabase = createClient()
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { error: signUpError, data: signUpData } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -40,6 +41,22 @@ export default function SignUpPage() {
       setError(signUpError.message)
       setLoading(false)
       return
+    }
+
+    // Fire-and-forget admin notification (trigger creates the public.users row;
+    // we look it up by auth_user_id here to get the profile id, then notify).
+    const authId = signUpData?.user?.id
+    if (authId) {
+      try {
+        // Look up the freshly-created public.users row (created by the auth trigger).
+        const { data: profile } = await supabase
+          .from("users").select("id").eq("auth_user_id", authId).maybeSingle()
+        if (profile?.id) {
+          await notifyAdminsOfNewSignup(profile.id)
+        }
+      } catch {
+        // non-fatal — the admin can still see pending users via the badge
+      }
     }
 
     setSuccess(true)

@@ -7,6 +7,10 @@ export interface ShellCounts {
   openIncidents: number
   equipmentIssues: number
   unreadNotifications: number
+  /** Pending user approvals across the campus — admin-only signal. */
+  pendingUsers: number
+  /** Pending sub-team join requests across all teams — lead/admin signal. */
+  pendingJoinRequests: number
 }
 
 export interface ShellNotification {
@@ -66,6 +70,17 @@ export async function getShellCounts(userId?: string | null): Promise<ShellCount
         .is("read_at", null)
     : Promise.resolve({ count: 0 } as { count: number | null })
 
+  // Admin-visible counts (cheap; RLS reads are open in this internal app)
+  const pendingUsersQuery = supabase
+    .from("users")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "pending")
+
+  const pendingJoinRequestsQuery = supabase
+    .from("sub_team_join_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "pending")
+
   const [
     pendingRequests,
     pendingApprovals,
@@ -73,6 +88,8 @@ export async function getShellCounts(userId?: string | null): Promise<ShellCount
     openIncidents,
     equipmentIssues,
     unreadNotifications,
+    pendingUsers,
+    pendingJoinRequests,
   ] = await Promise.all([
     pendingRequestsQuery,
     pendingApprovalsQuery,
@@ -80,6 +97,8 @@ export async function getShellCounts(userId?: string | null): Promise<ShellCount
     openIncidentsQuery,
     equipmentIssuesQuery,
     unreadNotificationsQuery,
+    pendingUsersQuery,
+    pendingJoinRequestsQuery,
   ])
 
   return {
@@ -89,6 +108,8 @@ export async function getShellCounts(userId?: string | null): Promise<ShellCount
     openIncidents: openIncidents.count ?? 0,
     equipmentIssues: equipmentIssues.count ?? 0,
     unreadNotifications: unreadNotifications.count ?? 0,
+    pendingUsers: pendingUsers.count ?? 0,
+    pendingJoinRequests: pendingJoinRequests.count ?? 0,
   }
 }
 

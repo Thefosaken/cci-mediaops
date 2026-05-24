@@ -33,6 +33,8 @@ function countForHref(href: string, counts?: ShellCounts): number {
     case "/scheduling": return counts.unconfirmedAssignments
     case "/incidents": return counts.openIncidents
     case "/equipment": return counts.equipmentIssues
+    case "/sub-teams": return counts.pendingJoinRequests
+    case "/settings": return counts.pendingUsers
     default: return 0
   }
 }

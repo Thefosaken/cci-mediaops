@@ -4,17 +4,18 @@ import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   Users, Plus, Search, UserPlus, Trash2, Star, CheckSquare,
-  Inbox, Wrench, AlertTriangle, MoreHorizontal,
+  Inbox, Wrench, MoreHorizontal, UserPlus2, Clock, Check, X as XIcon,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/lib/toast/toast-context"
 import { useUrlState } from "@/lib/hooks/use-url-state"
 import { cn } from "@/lib/utils/cn"
 import { ROLE_LABELS } from "@/constants"
+import { formatDistanceToNow } from "date-fns"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Button, IconButton } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/ui/status-badge"
@@ -24,6 +25,7 @@ import { FormField } from "@/components/ui/form-field"
 import { Avatar } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { addSubTeamMember, removeSubTeamMember, assignSubTeamLead } from "@/server/actions/sub-teams"
+import { requestSubTeamJoin, approveJoinRequest, rejectJoinRequest, cancelMyJoinRequest } from "@/server/actions/join-requests"
 
 type SubTeamRow = {
   id: string
@@ -40,6 +42,17 @@ type SubTeamRow = {
 
 type UserLite = { id: string; full_name: string | null; email: string | null }
 type RoleLite = { id: string; name: string }
+type MyMembership = { sub_team_id: string; role_id: string | null; roles: { name: string } | null }
+type MyJoinRequest = { id: string; sub_team_id: string; status: string; created_at: string }
+type PendingJoinRequest = {
+  id: string
+  sub_team_id: string
+  user_id: string
+  status: string
+  message: string | null
+  created_at: string
+  user: { id: string; full_name: string | null; email: string | null } | null
+}
 
 export function SubTeamsPageClient({
   subTeams,
@@ -47,20 +60,31 @@ export function SubTeamsPageClient({
   roles,
   requestJoins,
   equipment,
+  currentUserId,
+  isAdmin,
+  myMemberships,
+  myJoinRequests,
+  pendingJoinRequests,
 }: {
   subTeams: SubTeamRow[]
   allUsers: UserLite[]
   roles: RoleLite[]
   requestJoins: { sub_team_id: string; requests: { id: string; title: string; status: string; priority: string; deadline: string | null; requesting_unit: string | null } | null }[]
   equipment: { id: string; sub_team_id: string; condition_status: string; availability_status: string }[]
+  currentUserId: string
+  isAdmin: boolean
+  myMemberships: MyMembership[]
+  myJoinRequests: MyJoinRequest[]
+  pendingJoinRequests: PendingJoinRequest[]
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
-  const { get, set, clear } = useUrlState()
+  const { get, set } = useUrlState()
 
   const activeId = get("id") ?? subTeams[0]?.id ?? null
   const [showAddMember, setShowAddMember] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
+  const [showJoinModal, setShowJoinModal] = useState(false)
 
   const active = subTeams.find((s) => s.id === activeId) ?? null
 
@@ -79,11 +103,45 @@ export function SubTeamsPageClient({
   const memberRoleId = roles.find((r) => r.name === "team_member")?.id
   const leadRoleId = roles.find((r) => r.name === "sub_team_lead")?.id
 
+  // Membership flags for the active team
+  const myMembershipHere = myMemberships.find((m) => m.sub_team_id === activeId) ?? null
+  const isMember = !!myMembershipHere
+  const isLeadHere = myMembershipHere?.roles?.name === "sub_team_lead" || myMembershipHere?.roles?.name === "assistant_lead"
+  const canModerate = isAdmin || isLeadHere
+  const pendingJoin = myJoinRequests.find((r) => r.sub_team_id === activeId && r.status === "pending") ?? null
+  const teamPendingRequests = pendingJoinRequests.filter((r) => r.sub_team_id === activeId)
+
   async function addMember(userId: string) {
     if (!active || !memberRoleId) return
     const r = await addSubTeamMember(active.id, userId, memberRoleId)
     if (r.error) toastError(r.error)
     else { success("Member added"); router.refresh() }
+  }
+
+  async function requestJoin(message?: string) {
+    if (!active) return
+    const r = await requestSubTeamJoin(active.id, message)
+    if (!r.success) toastError(r.error)
+    else { success("Request sent — a lead will review it shortly"); router.refresh(); setShowJoinModal(false) }
+  }
+
+  async function cancelMyRequest() {
+    if (!pendingJoin) return
+    const r = await cancelMyJoinRequest(pendingJoin.id)
+    if (!r.success) toastError(r.error)
+    else { success("Request cancelled"); router.refresh() }
+  }
+
+  async function approveRequest(reqId: string) {
+    const r = await approveJoinRequest(reqId)
+    if (!r.success) toastError(r.error)
+    else { success("Request approved"); router.refresh() }
+  }
+
+  async function rejectRequest(reqId: string) {
+    const r = await rejectJoinRequest(reqId)
+    if (!r.success) toastError(r.error)
+    else { success("Request rejected"); router.refresh() }
   }
   async function removeMember(userId: string) {
     if (!active) return
@@ -120,6 +178,7 @@ export function SubTeamsPageClient({
                 {subTeams.map((st) => {
                   const memberCount = st.sub_team_memberships.length
                   const openTasks = st.tasks.filter((t) => !["completed", "cancelled"].includes(t.status)).length
+                  const teamPending = pendingJoinRequests.filter((r) => r.sub_team_id === st.id).length
                   return (
                     <li key={st.id}>
                       <button
@@ -132,6 +191,9 @@ export function SubTeamsPageClient({
                       >
                         <div className="flex items-center gap-2">
                           <span className="text-[13px] font-medium text-foreground truncate flex-1">{st.name}</span>
+                          {teamPending > 0 && (
+                            <Badge variant="warning" size="sm">{teamPending}</Badge>
+                          )}
                           {st.status !== "active" && <Badge variant="muted" size="sm">{st.status}</Badge>}
                         </div>
                         <p className="text-[11.5px] text-faint mt-0.5 tabular-nums">
@@ -158,13 +220,38 @@ export function SubTeamsPageClient({
               {/* Header card */}
               <div className="rounded-xl border border-border bg-surface px-5 py-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <h2 className="text-[18px] font-semibold tracking-tight text-foreground">{active.name}</h2>
                     {active.description && (
                       <p className="text-[13px] text-muted mt-1 max-w-xl">{active.description}</p>
                     )}
                   </div>
-                  <Badge variant="success" size="sm" dot>Active</Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isMember && (
+                      <Badge variant="success" size="sm" dot>
+                        {myMembershipHere?.roles?.name
+                          ? (ROLE_LABELS[myMembershipHere.roles.name] ?? "Member")
+                          : "Member"}
+                      </Badge>
+                    )}
+                    {!isMember && pendingJoin && (
+                      <>
+                        <Badge variant="warning" size="sm" dot>
+                          <Clock className="h-2.5 w-2.5" />
+                          Awaiting approval
+                        </Badge>
+                        <Button variant="ghost" size="xs" onClick={cancelMyRequest}>
+                          Cancel
+                        </Button>
+                      </>
+                    )}
+                    {!isMember && !pendingJoin && (
+                      <Button size="sm" onClick={() => setShowJoinModal(true)}>
+                        <UserPlus2 className="h-3.5 w-3.5" />
+                        Request to join
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Stat label="Members" value={active.sub_team_memberships.length} />
@@ -173,6 +260,47 @@ export function SubTeamsPageClient({
                   <Stat label="Equipment" value={teamEquipment.length} />
                 </div>
               </div>
+
+              {/* Pending join requests (visible to leads + admins) */}
+              {canModerate && teamPendingRequests.length > 0 && (
+                <section className="rounded-xl border border-warning/30 bg-warning-soft/30 overflow-hidden">
+                  <div className="flex items-center gap-2 px-5 py-3 border-b border-warning/30">
+                    <Clock className="h-3.5 w-3.5 text-warning" />
+                    <h3 className="text-[13px] font-semibold text-foreground">Pending join requests</h3>
+                    <Badge variant="warning" size="sm">{teamPendingRequests.length}</Badge>
+                  </div>
+                  <ul className="divide-y divide-warning/20">
+                    {teamPendingRequests.map((req) => (
+                      <li key={req.id} className="flex items-start gap-3 px-5 py-3">
+                        <Avatar name={req.user?.full_name} email={req.user?.email} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] font-medium text-foreground truncate">
+                            {req.user?.full_name ?? req.user?.email}
+                          </p>
+                          <p className="text-[11.5px] text-faint truncate">
+                            {req.user?.email}
+                            <span className="mx-1.5">·</span>
+                            <span className="tabular-nums">
+                              {formatDistanceToNow(new Date(req.created_at), { addSuffix: true })}
+                            </span>
+                          </p>
+                          {req.message && (
+                            <p className="text-[12px] text-muted mt-1 italic">&ldquo;{req.message}&rdquo;</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button size="xs" onClick={() => approveRequest(req.id)}>
+                            <Check className="h-3 w-3" /> Approve
+                          </Button>
+                          <IconButton label="Reject" size="xs" onClick={() => rejectRequest(req.id)}>
+                            <XIcon className="h-3 w-3" />
+                          </IconButton>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
               {/* Two-column grid */}
               <div className="grid gap-5 lg:grid-cols-2">
@@ -353,7 +481,65 @@ export function SubTeamsPageClient({
           onCreated={() => { setShowAddTask(false); router.refresh() }}
         />
       )}
+
+      {/* Request-to-join modal */}
+      {active && (
+        <JoinRequestModal
+          open={showJoinModal}
+          onClose={() => setShowJoinModal(false)}
+          teamName={active.name}
+          onSubmit={requestJoin}
+        />
+      )}
     </div>
+  )
+}
+
+function JoinRequestModal({
+  open, onClose, teamName, onSubmit,
+}: {
+  open: boolean
+  onClose: () => void
+  teamName: string
+  onSubmit: (message?: string) => void
+}) {
+  const [message, setMessage] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+
+  async function go() {
+    setSubmitting(true)
+    await onSubmit(message.trim() || undefined)
+    setMessage("")
+    setSubmitting(false)
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Request to join ${teamName}`}
+      description="A team lead or admin will review your request and approve it."
+      size="default"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button onClick={go} loading={submitting}>Send request</Button>
+        </>
+      }
+    >
+      <FormField
+        label="Note for the lead"
+        helper="Optional — let them know why you want to join, what gear or skills you bring, etc."
+      >
+        <Textarea
+          autoFocus
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder={`I'd love to serve on ${teamName}…`}
+          rows={4}
+        />
+      </FormField>
+    </Modal>
   )
 }
 

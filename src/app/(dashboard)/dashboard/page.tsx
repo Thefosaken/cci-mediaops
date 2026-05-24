@@ -9,6 +9,9 @@ import {
   getUnconfirmedAssignments,
 } from "@/server/queries"
 import { getShellCounts } from "@/server/queries/shell"
+import { getOnboardingState, buildChecklist } from "@/server/queries/onboarding"
+import { WelcomeModal } from "@/components/onboarding/welcome-modal"
+import { GettingStarted } from "@/components/onboarding/getting-started"
 import { PageHeader } from "@/components/ui/page-header"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -52,14 +55,21 @@ export default async function DashboardPage() {
   const user = await requireAuth()
   const supabase = await createClient()
 
-  const [events, requests, issues, incidents, myAssignments, counts] = await Promise.all([
+  const [events, requests, issues, incidents, myAssignments, counts, onboarding] = await Promise.all([
     getUpcomingEvents(6),
     getPendingRequests(),
     getEquipmentWithIssues(),
     getOpenIncidents(),
     getUnconfirmedAssignments(),
     getShellCounts(user.id),
+    getOnboardingState(user.id),
   ])
+
+  // Welcome flow gating: first sign-in (no onboarded_at) OR checklist still has incomplete items
+  const showWelcomeModal = !onboarding.onboardedAt
+  const checklistItems = buildChecklist(onboarding)
+  const showChecklist =
+    !onboarding.onboardedAt || checklistItems.some((i) => !i.done)
 
   // My pending personal assignments (not all unconfirmed)
   const mine = (myAssignments ?? []).filter((s) => s.assigned_user_id === user.id).slice(0, 5)
@@ -142,7 +152,11 @@ export default async function DashboardPage() {
         }
       />
 
+      <WelcomeModal name={user.full_name} shouldShow={showWelcomeModal} />
+
       <div className="px-5 sm:px-6 py-6 space-y-6">
+        {showChecklist && <GettingStarted items={checklistItems} />}
+
         {/* Summary stat cards */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {summaryCards.map(({ title, label, value, Icon, href, tone }) => (
