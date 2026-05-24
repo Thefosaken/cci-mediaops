@@ -14,13 +14,33 @@ export default async function SettingsPage() {
 
   const supabase = await createClient()
 
-  const [pendingRes, activeRes, subTeamsRes, rolesRes, campusRes] = await Promise.all([
-    supabase.from("users").select("*, campus_memberships(id, role_id, status)").eq("status", "pending"),
-    supabase.from("users").select("*, campus_memberships(id, role_id, status)").eq("status", "active").order("full_name"),
+  const [allUsersRes, subTeamsRes, rolesRes, campusRes] = await Promise.all([
+    supabase
+      .from("users")
+      .select("*, campus_memberships(id, role_id, status)")
+      .order("full_name"),
     supabase.from("sub_teams").select("*").order("name"),
     supabase.from("roles").select("*").order("name"),
     supabase.from("campuses").select("*").limit(1).maybeSingle(),
   ])
+
+  const all = allUsersRes.data ?? []
+
+  // Bucket: "invited" = invited but not yet accepted (auth link unconsumed).
+  // Everyone else with status='active' is shown in the Active list.
+  // Legacy pending users (status='pending' WITHOUT invited_at) still show as
+  // "Pending approval" so older sign-up data isn't lost in the transition.
+  const invited = all.filter(
+    (u) => u.invited_at && !u.accepted_invite_at
+  )
+  const legacyPending = all.filter(
+    (u) => u.status === "pending" && !u.invited_at
+  )
+  const active = all.filter(
+    (u) =>
+      u.status === "active" &&
+      (!u.invited_at || u.accepted_invite_at)
+  )
 
   return (
     <Suspense>
@@ -28,8 +48,9 @@ export default async function SettingsPage() {
         currentUser={user}
         roleName={roleName ?? null}
         isAdmin={isAdmin}
-        pendingUsers={pendingRes.data ?? []}
-        activeUsers={activeRes.data ?? []}
+        invitedUsers={invited}
+        pendingUsers={legacyPending}
+        activeUsers={active}
         subTeams={subTeamsRes.data ?? []}
         roles={rolesRes.data ?? []}
         campus={campusRes.data ?? null}

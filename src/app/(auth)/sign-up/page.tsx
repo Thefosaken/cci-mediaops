@@ -1,173 +1,62 @@
-"use client"
-
-import { useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { createClient } from "@/lib/supabase/server"
+import { ShieldCheck, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { FormField } from "@/components/ui/form-field"
-import { AlertCircle, ArrowRight, MailCheck } from "lucide-react"
-import { notifyAdminsOfNewSignup } from "@/server/actions/onboarding"
+import { SignUpForm } from "./signup-form"
 
-export default function SignUpPage() {
-  const router = useRouter()
-  const [fullName, setFullName] = useState("")
-  const [email, setEmail] = useState("")
-  const [phone, setPhone] = useState("")
-  const [password, setPassword] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
+export const dynamic = "force-dynamic"
 
-  async function handleSignUp(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+/**
+ * Sign-up is allowed only when no users exist yet — that account becomes
+ * the super_admin and bootstraps the org/campus/sub-teams.
+ *
+ * Once there's at least one user, sign-up is invite-only: this page shows
+ * a friendly "ask an admin for an invite" message and routes back to login.
+ */
+export default async function SignUpPage() {
+  const supabase = await createClient()
+  const { count } = await supabase
+    .from("users")
+    .select("id", { count: "exact", head: true })
 
-    const supabase = createClient()
-    const { error: signUpError, data: signUpData } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          phone: phone || undefined,
-        },
-      },
-    })
+  const isFirstUserBootstrap = (count ?? 0) === 0
 
-    if (signUpError) {
-      setError(signUpError.message)
-      setLoading(false)
-      return
-    }
-
-    // Fire-and-forget admin notification (trigger creates the public.users row;
-    // we look it up by auth_user_id here to get the profile id, then notify).
-    const authId = signUpData?.user?.id
-    if (authId) {
-      try {
-        // Look up the freshly-created public.users row (created by the auth trigger).
-        const { data: profile } = await supabase
-          .from("users").select("id").eq("auth_user_id", authId).maybeSingle()
-        if (profile?.id) {
-          await notifyAdminsOfNewSignup(profile.id)
-        }
-      } catch {
-        // non-fatal — the admin can still see pending users via the badge
-      }
-    }
-
-    setSuccess(true)
-    setLoading(false)
-  }
-
-  if (success) {
+  if (!isFirstUserBootstrap) {
     return (
-      <div className="text-center">
-        <div className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-surface-subtle border border-border text-success">
-          <MailCheck className="h-5 w-5" aria-hidden="true" />
+      <div>
+        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-surface-subtle px-2.5 py-1">
+          <ShieldCheck className="h-3 w-3 text-faint" />
+          <span className="text-[11.5px] font-semibold uppercase tracking-wider text-faint">
+            Invite-only
+          </span>
         </div>
-        <h1 className="text-[18px] font-semibold tracking-tight text-foreground">Check your email</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
+          You need an invitation
+        </h1>
         <p className="mt-2 text-[13.5px] text-muted leading-relaxed">
-          We sent a confirmation link to{" "}
-          <strong className="font-medium text-foreground">{email}</strong>. Click it to
-          verify your account.
+          CCI MediaOps is invite-only. Ask a media admin to send you an invite —
+          they can do it from <span className="font-medium text-foreground">Settings → Users & access</span>.
+          You'll get an email with a link to set your password.
         </p>
-        <div className="mt-2 rounded-lg border border-border bg-surface-subtle px-3 py-2.5 text-left">
-          <p className="text-[12.5px] text-muted leading-snug">
-            <span className="font-medium text-foreground">Next step:</span> after verification,
-            a media admin will activate your account. You&apos;ll be notified when access is granted.
-          </p>
+
+        <div className="mt-6 rounded-lg border border-border bg-surface-subtle/60 px-3 py-3">
+          <div className="flex items-start gap-2.5">
+            <Mail className="h-3.5 w-3.5 text-faint shrink-0 mt-0.5" />
+            <p className="text-[12.5px] text-muted leading-snug">
+              Already got an invitation email? Click the link in that email instead of
+              signing up here.
+            </p>
+          </div>
         </div>
-        <Button
-          variant="secondary"
-          size="lg"
-          fullWidth
-          className="mt-6"
-          onClick={() => router.push("/login")}
-        >
-          Back to sign in
-        </Button>
+
+        <div className="mt-6 flex flex-col gap-2">
+          <Link href="/login">
+            <Button variant="primary" fullWidth size="lg">Go to sign in</Button>
+          </Link>
+        </div>
       </div>
     )
   }
 
-  return (
-    <div>
-      <div className="mb-7">
-        <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Request access</h1>
-        <p className="text-[13.5px] text-muted mt-1.5">
-          Create an account. A media admin will approve you before you can sign in.
-        </p>
-      </div>
-
-      {error && (
-        <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2.5 text-[13px] text-danger">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSignUp} className="space-y-4">
-        <FormField label="Full name" required>
-          <Input
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            placeholder="John Smith"
-            required
-            autoFocus
-            autoComplete="name"
-          />
-        </FormField>
-        <FormField label="Email" required>
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-            autoComplete="email"
-          />
-        </FormField>
-        <FormField label="Phone" helper="Optional — used for high-priority service alerts">
-          <Input
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+234 800 000 0000"
-            autoComplete="tel"
-          />
-        </FormField>
-        <FormField label="Password" required helper="At least 8 characters">
-          <Input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            minLength={8}
-            required
-            autoComplete="new-password"
-          />
-        </FormField>
-
-        <Button type="submit" loading={loading} fullWidth size="lg" className="mt-1">
-          {loading ? "Creating account…" : (
-            <>
-              Create account
-              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-            </>
-          )}
-        </Button>
-      </form>
-
-      <p className="mt-7 text-center text-[13px] text-muted">
-        Already have an account?{" "}
-        <Link href="/login" className="font-medium text-foreground hover:text-primary transition-colors underline-offset-4 hover:underline">
-          Sign in
-        </Link>
-      </p>
-    </div>
-  )
+  return <SignUpForm />
 }

@@ -134,6 +134,35 @@ export function leadJoinRequestEmail(input: {
   }
 }
 
+export function invitationEmail(input: {
+  inviteeName: string | null
+  inviterName: string | null
+  roleLabel: string
+  inviteUrl: string
+}) {
+  const greeting = input.inviteeName
+    ? `Hi ${escape(input.inviteeName)},`
+    : "Hi,"
+  const inviter = input.inviterName
+    ? `<strong style="color:${PALETTE.text};">${escape(input.inviterName)}</strong>`
+    : "An admin"
+  return {
+    subject: "You've been invited to CCI MediaOps",
+    text: `${input.inviteeName ?? "Hi"},\n\n${input.inviterName ?? "An admin"} has invited you to join CCI MediaOps as ${input.roleLabel}.\n\nAccept and set your password: ${input.inviteUrl}\n\nThis link expires in 24 hours.`,
+    html: shell({
+      preheader: `${input.inviterName ?? "An admin"} invited you to CCI MediaOps.`,
+      heading: "You're invited",
+      body: `<p style="margin:0 0 12px;">${greeting}</p>
+        <p style="margin:0 0 12px;">${inviter} has invited you to CCI MediaOps as <strong style="color:${PALETTE.text};">${escape(input.roleLabel)}</strong>.</p>
+        <p style="margin:0 0 12px;">Click below to set your password and start using the app. The link expires in 24 hours.</p>`,
+      ctaLabel: "Accept invitation",
+      ctaHref: input.inviteUrl,
+      footer:
+        "If you weren't expecting this invitation, you can safely ignore this email.",
+    }),
+  }
+}
+
 export function joinRequestApprovedEmail(input: {
   userName: string
   subTeamName: string

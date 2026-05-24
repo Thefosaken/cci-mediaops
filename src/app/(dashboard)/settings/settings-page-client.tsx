@@ -4,8 +4,9 @@ import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   Settings as SettingsIcon, User as UserIcon, Users, Building, Bell, Palette, Shield,
-  Plus, Check, X as XIcon, Search, Power, MoreHorizontal, Trash2,
+  Plus, Check, X as XIcon, Search, Power, MoreHorizontal, Mail, Send, Clock,
 } from "lucide-react"
+import { formatDistanceToNow } from "date-fns"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/lib/toast/toast-context"
 import { useUrlState } from "@/lib/hooks/use-url-state"
@@ -23,7 +24,9 @@ import { FormField } from "@/components/ui/form-field"
 import { Avatar } from "@/components/ui/avatar"
 import { Switch } from "@/components/ui/switch"
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { Modal } from "@/components/ui/modal"
 import { approveUserWithRole, rejectPendingUser } from "@/server/actions/onboarding"
+import { inviteMember, resendInvite, cancelInvite } from "@/server/actions/invites"
 
 interface Role { id: string; name: string; description: string | null }
 interface SubTeam { id: string; name: string; description: string | null; status: string }
@@ -33,6 +36,8 @@ interface UserRow {
   email: string | null
   phone: string | null
   status: string
+  invited_at: string | null
+  accepted_invite_at: string | null
   campus_memberships: { id: string; role_id: string | null; status: string }[]
 }
 interface Campus { id: string; name: string; location: string | null }
@@ -50,6 +55,7 @@ export function SettingsPageClient({
   currentUser,
   roleName,
   isAdmin,
+  invitedUsers,
   pendingUsers,
   activeUsers,
   subTeams,
@@ -59,6 +65,7 @@ export function SettingsPageClient({
   currentUser: { id: string; full_name: string | null; email: string | null; phone: string | null }
   roleName: string | null
   isAdmin: boolean
+  invitedUsers: UserRow[]
   pendingUsers: UserRow[]
   activeUsers: UserRow[]
   subTeams: SubTeam[]
@@ -98,9 +105,9 @@ export function SettingsPageClient({
                 >
                   <Icon className="h-3.5 w-3.5 text-faint shrink-0" />
                   {s.label}
-                  {s.id === "users" && pendingUsers.length > 0 && (
+                  {s.id === "users" && (invitedUsers.length + pendingUsers.length) > 0 && (
                     <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-md px-1 text-[10px] font-semibold bg-warning-soft text-warning">
-                      {pendingUsers.length}
+                      {invitedUsers.length + pendingUsers.length}
                     </span>
                   )}
                 </button>
@@ -119,6 +126,7 @@ export function SettingsPageClient({
             {section === "sub-teams" && isAdmin && <SubTeamsSection subTeams={subTeams} />}
             {section === "users" && isAdmin && (
               <UsersSection
+                invitedUsers={invitedUsers}
                 pendingUsers={pendingUsers}
                 activeUsers={activeUsers}
                 roles={roles}
@@ -392,8 +400,9 @@ function SubTeamsSection({ subTeams }: { subTeams: SubTeam[] }) {
 
 // ── Section: Users (admin) ──────────────────────────────────────────────
 function UsersSection({
-  pendingUsers, activeUsers, roles,
+  invitedUsers, pendingUsers, activeUsers, roles,
 }: {
+  invitedUsers: UserRow[]
   pendingUsers: UserRow[]
   activeUsers: UserRow[]
   roles: Role[]
@@ -402,6 +411,7 @@ function UsersSection({
   const { success, error: toastError, warning } = useToast()
   const [selectedRole, setSelectedRole] = useState<Record<string, string>>({})
   const [query, setQuery] = useState("")
+  const [showInvite, setShowInvite] = useState(false)
 
   const roleOptions = useMemo(
     () => [{ value: "", label: "Choose role…" }, ...roles.map((r) => ({ value: r.id, label: ROLE_LABELS[r.name] ?? r.name }))],
@@ -433,6 +443,19 @@ function UsersSection({
     router.refresh()
   }
 
+  async function doResendInvite(userId: string) {
+    const r = await resendInvite(userId)
+    if (!r.success) toastError(r.error)
+    else { success("Invitation resent"); router.refresh() }
+  }
+
+  async function doCancelInvite(userId: string) {
+    if (!confirm("Cancel this invitation? The user will be removed and the email becomes free again.")) return
+    const r = await cancelInvite(userId)
+    if (!r.success) toastError(r.error)
+    else { success("Invitation cancelled"); router.refresh() }
+  }
+
   async function suspend(userId: string) {
     const supabase = createClient()
     await supabase.from("users").update({ status: "suspended" }).eq("id", userId)
@@ -456,13 +479,75 @@ function UsersSection({
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Users & access" description="Approve new users and manage roles." />
+      <div className="flex items-start justify-between gap-3">
+        <SectionTitle
+          title="Users & access"
+          description="Invite teammates, assign roles, manage active members."
+        />
+        <Button size="sm" onClick={() => setShowInvite(true)}>
+          <Plus className="h-3.5 w-3.5" /> Invite member
+        </Button>
+      </div>
 
+      {/* Pending invitations (sent but not yet accepted) */}
+      {invitedUsers.length > 0 && (
+        <div className="rounded-xl border border-info/30 bg-info-soft/30 overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-info/30">
+            <Mail className="h-3.5 w-3.5 text-info" />
+            <h3 className="text-[13px] font-semibold text-foreground">Pending invitations</h3>
+            <Badge variant="info" size="sm">{invitedUsers.length}</Badge>
+          </div>
+          <ul className="divide-y divide-info/20">
+            {invitedUsers.map((u) => {
+              const roleId = u.campus_memberships?.[0]?.role_id
+              const role = roles.find((r) => r.id === roleId)
+              return (
+                <li key={u.id} className="flex items-center gap-3 px-5 py-3">
+                  <Avatar name={u.full_name} email={u.email} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-medium text-foreground truncate">
+                      {u.full_name ?? u.email}
+                    </p>
+                    <p className="text-[11.5px] text-faint truncate flex items-center gap-1.5">
+                      <span className="truncate">{u.email}</span>
+                      {u.invited_at && (
+                        <>
+                          <span className="text-faint">·</span>
+                          <Clock className="h-2.5 w-2.5" />
+                          <span className="tabular-nums">
+                            Sent {formatDistanceToNow(new Date(u.invited_at), { addSuffix: true })}
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  {role && (
+                    <Badge variant="muted" size="sm">
+                      {ROLE_LABELS[role.name] ?? role.name}
+                    </Badge>
+                  )}
+                  <Button size="xs" variant="ghost" onClick={() => doResendInvite(u.id)}>
+                    <Send className="h-3 w-3" /> Resend
+                  </Button>
+                  <IconButton label="Cancel invitation" size="xs" onClick={() => doCancelInvite(u.id)}>
+                    <XIcon className="h-3 w-3" />
+                  </IconButton>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* Legacy pending-approval users (carry-over from old signup flow) */}
       {pendingUsers.length > 0 && (
         <div className="rounded-xl border border-warning/30 bg-warning-soft/40">
           <div className="flex items-center gap-2 px-5 py-3 border-b border-warning/30">
             <h3 className="text-[13px] font-semibold text-foreground">Pending approval</h3>
             <Badge variant="warning" size="sm">{pendingUsers.length}</Badge>
+            <span className="text-[11px] text-faint ml-1">
+              (signed up before invite-only mode)
+            </span>
           </div>
           <ul className="divide-y divide-warning/20">
             {pendingUsers.map((u) => (
@@ -494,6 +579,13 @@ function UsersSection({
           </ul>
         </div>
       )}
+
+      <InviteModal
+        open={showInvite}
+        onClose={() => setShowInvite(false)}
+        roles={roles}
+      />
+
 
       <div className="rounded-xl border border-border bg-surface overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border">
@@ -578,5 +670,78 @@ function SectionTitle({ title, description }: { title: string; description?: str
       <h2 className="text-[16px] font-semibold tracking-tight text-foreground">{title}</h2>
       {description && <p className="text-[12.5px] text-muted mt-1 max-w-xl">{description}</p>}
     </div>
+  )
+}
+
+function InviteModal({
+  open, onClose, roles,
+}: {
+  open: boolean
+  onClose: () => void
+  roles: Role[]
+}) {
+  const router = useRouter()
+  const { success, error: toastError } = useToast()
+  const [email, setEmail] = useState("")
+  const [fullName, setFullName] = useState("")
+  const [roleId, setRoleId] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const roleOptions = [
+    { value: "", label: "Choose role…" },
+    ...roles.map((r) => ({ value: r.id, label: ROLE_LABELS[r.name] ?? r.name })),
+  ]
+
+  async function send() {
+    setSaving(true)
+    const r = await inviteMember({ email, fullName, roleId })
+    setSaving(false)
+    if (!r.success) { toastError(r.error); return }
+    success(`Invitation sent to ${email}`)
+    setEmail(""); setFullName(""); setRoleId("")
+    router.refresh()
+    onClose()
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Invite a member"
+      description="They'll get an email with a link to set their password. The role you pick becomes active as soon as they accept."
+      size="default"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={send} loading={saving} disabled={saving || !email || !fullName || !roleId}>
+            <Send className="h-3.5 w-3.5" /> Send invitation
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 py-2">
+        <FormField label="Full name" required>
+          <Input
+            autoFocus
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="Jane Doe"
+            autoComplete="off"
+          />
+        </FormField>
+        <FormField label="Email" required>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value.trim())}
+            placeholder="jane@example.com"
+            autoComplete="off"
+          />
+        </FormField>
+        <FormField label="Role" required helper="Determines what they can see and do in the app.">
+          <Select value={roleId} onChange={setRoleId} options={roleOptions} />
+        </FormField>
+      </div>
+    </Modal>
   )
 }
