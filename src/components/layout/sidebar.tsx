@@ -40,8 +40,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   return (
     <aside className="flex h-full w-64 flex-col border-r border-border bg-surface">
       <div className="flex h-16 items-center justify-between border-b border-border px-5">
-        <Link href="/dashboard" className="flex items-center gap-2.5" onClick={onClose}>
-          <Logo />
+        <Link href="/dashboard" className="flex items-center gap-3" onClick={onClose}>
+          <Logo className="h-9 w-auto" />
+          <div className="h-7 w-px bg-border" />
+          <span className="text-sm font-semibold text-foreground">MediaOps</span>
         </Link>
         {onClose && (
           <button onClick={onClose} className="rounded-md p-1.5 text-muted hover:text-foreground hover:bg-surface-subtle">
