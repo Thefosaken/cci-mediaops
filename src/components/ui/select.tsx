@@ -1,0 +1,229 @@
+"use client"
+
+import * as React from "react"
+import { cn } from "@/lib/utils/cn"
+import { Check, ChevronDown, Search } from "lucide-react"
+
+export interface SelectOption {
+  value: string
+  label: string
+  description?: string
+  disabled?: boolean
+}
+
+interface SelectProps {
+  id?: string
+  value: string
+  onChange: (value: string) => void
+  options: SelectOption[]
+  placeholder?: string
+  searchable?: boolean
+  disabled?: boolean
+  className?: string
+  "aria-label"?: string
+}
+
+export function Select({
+  id,
+  value,
+  onChange,
+  options,
+  placeholder = "Select…",
+  searchable = false,
+  disabled = false,
+  className,
+  "aria-label": ariaLabel,
+}: SelectProps) {
+  const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
+  const [focusedIndex, setFocusedIndex] = React.useState(-1)
+  const triggerRef = React.useRef<HTMLButtonElement>(null)
+  const listRef = React.useRef<HTMLUListElement>(null)
+  const searchRef = React.useRef<HTMLInputElement>(null)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+
+  const selected = options.find((o) => o.value === value)
+
+  const filtered = query.trim()
+    ? options.filter(
+        (o) =>
+          o.label.toLowerCase().includes(query.toLowerCase()) ||
+          o.description?.toLowerCase().includes(query.toLowerCase())
+      )
+    : options
+
+  // Close on outside click
+  React.useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: PointerEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false)
+        setQuery("")
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [open])
+
+  // Auto-focus search when open
+  React.useEffect(() => {
+    if (open && searchable) {
+      setTimeout(() => searchRef.current?.focus(), 20)
+    }
+    if (open) setFocusedIndex(-1)
+  }, [open, searchable])
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (disabled) return
+    switch (e.key) {
+      case "Enter":
+      case " ":
+        if (!open) { setOpen(true); break }
+        if (focusedIndex >= 0 && filtered[focusedIndex]) {
+          select(filtered[focusedIndex].value)
+        }
+        break
+      case "Escape":
+        setOpen(false)
+        setQuery("")
+        triggerRef.current?.focus()
+        break
+      case "ArrowDown":
+        e.preventDefault()
+        if (!open) { setOpen(true); break }
+        setFocusedIndex((i) => Math.min(i + 1, filtered.length - 1))
+        break
+      case "ArrowUp":
+        e.preventDefault()
+        if (!open) { setOpen(true); break }
+        setFocusedIndex((i) => Math.max(i - 1, 0))
+        break
+      case "Tab":
+        setOpen(false)
+        setQuery("")
+        break
+    }
+  }
+
+  function select(val: string) {
+    onChange(val)
+    setOpen(false)
+    setQuery("")
+    triggerRef.current?.focus()
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className={cn("relative w-full", className)}
+      onKeyDown={handleKeyDown}
+    >
+      {/* Trigger */}
+      <button
+        ref={triggerRef}
+        id={id}
+        type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex h-10 w-full items-center justify-between rounded-lg border border-border bg-canvas px-3 py-2",
+          "text-sm transition-colors duration-150 text-left",
+          "hover:border-border-strong",
+          "focus-visible:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-focus-ring/20",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          open && "border-border-strong ring-2 ring-focus-ring/20"
+        )}
+      >
+        <span className={cn("truncate", !selected && "text-faint")}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 text-faint shrink-0 ml-2 transition-transform duration-150",
+            open && "rotate-180"
+          )}
+          aria-hidden="true"
+        />
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div
+          className={cn(
+            "absolute z-50 mt-1 w-full rounded-xl border border-border bg-surface-raised shadow-md",
+            "animate-slide-up overflow-hidden"
+          )}
+          style={{ minWidth: "100%" }}
+        >
+          {/* Search */}
+          {searchable && (
+            <div className="flex items-center border-b border-border px-3 py-2 gap-2">
+              <Search className="h-3.5 w-3.5 text-faint shrink-0" aria-hidden="true" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setFocusedIndex(-1) }}
+                placeholder="Search…"
+                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-faint focus:outline-none"
+              />
+            </div>
+          )}
+
+          {/* Options */}
+          <ul
+            ref={listRef}
+            role="listbox"
+            className="max-h-72 overflow-y-auto py-1"
+          >
+            {filtered.length === 0 ? (
+              <li className="px-3 py-6 text-center text-sm text-faint">No results</li>
+            ) : (
+              filtered.map((option, idx) => {
+                const isSelected = option.value === value
+                const isFocused = idx === focusedIndex
+                return (
+                  <li
+                    key={option.value}
+                    role="option"
+                    aria-selected={isSelected}
+                    aria-disabled={option.disabled}
+                    onClick={() => !option.disabled && select(option.value)}
+                    onMouseEnter={() => setFocusedIndex(idx)}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors duration-75",
+                      "text-sm",
+                      isFocused && !option.disabled && "bg-surface-subtle",
+                      isSelected && "text-foreground",
+                      !isSelected && "text-muted hover:text-foreground",
+                      option.disabled && "cursor-not-allowed opacity-40"
+                    )}
+                  >
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-medium truncate">{option.label}</span>
+                      {option.description && (
+                        <span className="block text-xs text-faint truncate mt-0.5">
+                          {option.description}
+                        </span>
+                      )}
+                    </span>
+                    {isSelected && (
+                      <Check
+                        className="h-3.5 w-3.5 text-primary shrink-0"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </li>
+                )
+              })
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -1,7 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist+Sans:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Geist Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   --color-canvas: var(--bg);
   --color-surface: var(--surface);
@@ -48,10 +49,12 @@
   --ease-micro: cubic-bezier(0.25, 0.1, 0.25, 1);
   --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
   --ease-expressive: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-decel: cubic-bezier(0.0, 0.0, 0.2, 1);
 
   --animate-fade-in: fade-in 180ms var(--ease-standard);
   --animate-slide-up: slide-up 220ms var(--ease-standard);
   --animate-scale-in: scale-in 200ms var(--ease-expressive);
+  --animate-slide-in-right: slide-in-right 260ms var(--ease-decel);
 
   @keyframes fade-in {
     from { opacity: 0; }
@@ -65,6 +68,26 @@
     from { opacity: 0; transform: scale(0.96); }
     to { opacity: 1; transform: scale(1); }
   }
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(-12px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(12px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes toast-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(8px) scale(0.97); }
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  --animate-toast-in: toast-in 240ms var(--ease-expressive);
+  --animate-toast-out: toast-out 180ms var(--ease-standard);
+  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
 }
 
 :root {
@@ -72,7 +95,8 @@
 
   --brand-red: #D32126;
   --brand-red-dark: #B01A1F;
-  --brand-red-soft: rgba(211, 33, 38, 0.12);
+  --brand-red-soft: rgba(211, 33, 38, 0.10);
+  --brand-red-bar: rgba(211, 33, 38, 0.50);
   --brand-yellow: #F9F152;
   --brand-white: #FFFFFF;
 
@@ -87,6 +111,7 @@
   --text-faint: #8E939E;
   --disabled: #B9BDC6;
   --focus: #D32126;
+  --shadow: rgba(15, 15, 15, 0.08);
 
   --success: #16803C;
   --success-soft: #EAF8EF;
@@ -103,9 +128,13 @@
   --status-complete: #16803C;
   --status-muted: #666B74;
 
-  --shadow-elevation-sm: 0 1px 2px rgba(0,0,0,0.06);
-  --shadow-elevation-md: 0 8px 24px rgba(0,0,0,0.08);
-  --shadow-elevation-lg: 0 20px 60px rgba(0,0,0,0.14);
+  --shadow-elevation-sm: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03);
+  --shadow-elevation-md: 0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-elevation-lg: 0 20px 60px rgba(0,0,0,0.14), 0 4px 16px rgba(0,0,0,0.06);
+
+  --transition-fast: 120ms;
+  --transition-base: 200ms;
+  --transition-slow: 320ms;
 }
 
 [data-theme="dark"] {
@@ -114,7 +143,7 @@
   --bg: #08090A;
   --surface: #101114;
   --surface-subtle: #16171B;
-  --surface-raised: #1B1C21;
+  --surface-raised: #1C1D22;
   --border: #2A2C33;
   --border-strong: #3A3D46;
   --text: #F4F5F8;
@@ -122,6 +151,7 @@
   --text-faint: #707581;
   --disabled: #555B66;
   --focus: #F2645D;
+  --shadow: rgba(0, 0, 0, 0.36);
 
   --success: #42C777;
   --success-soft: rgba(66, 199, 119, 0.12);
@@ -138,21 +168,75 @@
   --status-complete: #42C777;
   --status-muted: #A2A6B0;
 
-  --shadow-elevation-sm: 0 1px 2px rgba(0,0,0,0.32);
-  --shadow-elevation-md: 0 12px 32px rgba(0,0,0,0.42);
-  --shadow-elevation-lg: 0 24px 80px rgba(0,0,0,0.56);
+  --shadow-elevation-sm: 0 1px 2px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,255,255,0.03);
+  --shadow-elevation-md: 0 8px 24px rgba(0,0,0,0.42), 0 1px 4px rgba(0,0,0,0.24);
+  --shadow-elevation-lg: 0 24px 80px rgba(0,0,0,0.56), 0 8px 24px rgba(0,0,0,0.32);
+}
+
+/* ── Base ─────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
 * {
   border-color: var(--border);
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
+  font-family: var(--font-sans, ui-sans-serif), system-ui, sans-serif;
   font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
 }
 
+/* ── Custom Scrollbar ─────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* ── Selection ────────────────────────────────────── */
+::selection {
+  background: rgba(211, 33, 38, 0.14);
+  color: var(--brand-red);
+}
+
+/* ── Focus ────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Date/time input calendar icon ───────────────── */
+::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+  filter: var(--calendar-icon-filter, none);
+}
+[data-theme="dark"] ::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+/* ── Reduced motion ───────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -160,12 +244,15 @@ body {
   }
 }
 
-::selection {
-  background: rgba(211, 33, 38, 0.15);
-  color: var(--brand-red);
-}
-
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
+/* ── Utility: screen reader only ─────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
