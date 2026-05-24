@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback } from "react"
 import { Sidebar } from "./sidebar"
 import { Navbar } from "./navbar"
 import { CommandPalette, useCommandPaletteShortcut } from "./command-palette"
@@ -36,24 +36,6 @@ export function Shell({
   const closeCommand = useCallback(() => setCommandOpen(false), [])
 
   useCommandPaletteShortcut(openCommand)
-
-  // "N" shortcut → new request (Linear-style)
-  useEffect(() => {
-    function handler(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null
-      const isEditable =
-        !!target?.closest("input, textarea, [contenteditable=true]") ||
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA"
-      if (isEditable || e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key.toLowerCase() === "n") {
-        e.preventDefault()
-        window.location.href = "/requests?new=1"
-      }
-    }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [])
 
   return (
     <ToastProvider>
