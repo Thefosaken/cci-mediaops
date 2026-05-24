@@ -27,7 +27,7 @@ export async function getCurrentUserWithRole() {
     .eq("auth_user_id", authUser.id)
     .single()
 
-  return profile as User & { campus_memberships: any[] } | null
+  return profile as User & { campus_memberships: unknown[] } | null
 }
 
 export async function requireAuth() {

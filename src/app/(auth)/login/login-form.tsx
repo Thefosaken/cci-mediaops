@@ -6,8 +6,8 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { LogIn } from "lucide-react"
+import { FormField } from "@/components/ui/form-field"
+import { AlertCircle, ArrowRight, Info } from "lucide-react"
 
 export function LoginForm() {
   const [email, setEmail] = useState("")
@@ -15,6 +15,7 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const searchParams = useSearchParams()
+  const message = searchParams.get("message")
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault()
@@ -22,10 +23,7 @@ export function LoginForm() {
     setError(null)
 
     const supabase = createClient()
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
     if (authError) {
       setError(authError.message)
@@ -48,11 +46,10 @@ export function LoginForm() {
 
     if (user && user.status === "pending") {
       await supabase.auth.signOut()
-      setError("Your account is pending approval. An admin will activate your account shortly.")
+      setError("Your account is pending approval. An admin will activate it shortly.")
       setLoading(false)
       return
     }
-
     if (!user) {
       await supabase.auth.signOut()
       setError("Account not found. Please contact an admin.")
@@ -64,88 +61,72 @@ export function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-[400px]">
-      <div className="bg-surface border border-border-subtle rounded-2xl p-8 shadow-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground mb-1.5">Welcome back</h1>
-          <p className="text-sm text-muted">Sign in to your account</p>
-        </div>
-
-        <form onSubmit={handleSignIn} className="space-y-5">
-          {searchParams.get("message") && (
-            <div className="bg-surface-subtle text-foreground text-sm rounded-lg p-3 text-center border border-border-subtle">
-              {searchParams.get("message")}
-            </div>
-          )}
-          {error && (
-            <div className="bg-danger/10 text-danger text-sm rounded-lg p-3 border border-danger/20 flex items-start gap-2">
-              <span className="shrink-0 font-medium">!</span>
-              <p>{error}</p>
-            </div>
-          )}
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-foreground/80">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                autoFocus
-                className="rounded-lg h-10 transition-shadow focus:ring-2 focus:ring-border-strong border-border-subtle"
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-foreground/80">Password</Label>
-                <Link href="#" className="text-xs text-muted hover:text-foreground transition-colors">
-                  Forgot password?
-                </Link>
-              </div>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                className="rounded-lg h-10 transition-shadow focus:ring-2 focus:ring-border-strong border-border-subtle"
-              />
-            </div>
-          </div>
-
-          <Button type="submit" className="w-full rounded-md h-10 font-medium transition-transform active:scale-[0.98]" disabled={loading}>
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
-                Signing in...
-              </span>
-            ) : (
-              "Sign In"
-            )}
-          </Button>
-        </form>
-
-        <div className="mt-6 flex items-center gap-3">
-          <div className="flex-1 h-px bg-border-subtle" />
-          <span className="text-xs text-muted font-medium uppercase tracking-wider">or</span>
-          <div className="flex-1 h-px bg-border-subtle" />
-        </div>
-
-        <div className="mt-6">
-          <Button variant="secondary" type="button" className="w-full rounded-md h-10 text-foreground border border-border-subtle hover:bg-surface-subtle transition-colors">
-            Sign in with GitHub
-          </Button>
-        </div>
+    <div>
+      <div className="mb-7">
+        <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Sign in</h1>
+        <p className="text-[13.5px] text-muted mt-1.5">
+          Welcome back. Use your CCI MediaOps account to continue.
+        </p>
       </div>
 
-      <p className="mt-8 text-center text-sm text-muted">
+      {message && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-border bg-surface-subtle px-3 py-2.5 text-[13px] text-foreground">
+          <Info className="h-4 w-4 text-info shrink-0 mt-0.5" aria-hidden="true" />
+          <span>{message}</span>
+        </div>
+      )}
+      {error && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2.5 text-[13px] text-danger">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSignIn} className="space-y-4">
+        <FormField label="Email" required>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+            autoFocus
+            autoComplete="email"
+          />
+        </FormField>
+        <FormField
+          label="Password"
+          required
+          hint={
+            <Link href="/forgot-password" className="text-muted hover:text-foreground transition-colors">
+              Forgot password?
+            </Link>
+          }
+        >
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            required
+            autoComplete="current-password"
+          />
+        </FormField>
+
+        <Button type="submit" loading={loading} fullWidth size="lg" className="mt-1">
+          {loading ? "Signing in…" : (
+            <>
+              Sign in
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </>
+          )}
+        </Button>
+      </form>
+
+      <p className="mt-7 text-center text-[13px] text-muted">
         Don&apos;t have an account?{" "}
-        <Link href="/sign-up" className="font-medium text-foreground hover:underline underline-offset-4 transition-all">
-          Sign up
+        <Link href="/sign-up" className="font-medium text-foreground hover:text-primary transition-colors underline-offset-4 hover:underline">
+          Request access
         </Link>
       </p>
     </div>

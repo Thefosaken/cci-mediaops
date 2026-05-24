@@ -1,137 +1,125 @@
 "use client"
 
-import { Bell, LogOut, Menu, Moon, Sun, ChevronRight } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
-import { useTheme } from "@/lib/theme/theme-context"
+import * as React from "react"
+import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { Menu, ChevronRight, Search } from "lucide-react"
 import { NAV_ITEMS } from "@/constants"
 import { cn } from "@/lib/utils/cn"
+import { IconButton } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
+import { NotificationsPopover } from "./notifications-popover"
+import { UserMenu } from "./user-menu"
+import type { ShellNotification } from "@/server/queries/shell"
 
 interface NavbarProps {
   onMenuClick?: () => void
-  title?: string
+  onCommandOpen: () => void
+  notifications: ShellNotification[]
+  unreadCount: number
+  userId: string | null
+  userName: string | null
+  userEmail: string | null
+  userRoleLabel?: string | null
 }
 
-// User initials avatar
-function Avatar({ name }: { name?: string }) {
-  const initials = name
-    ? name
-        .split(" ")
-        .map((n) => n[0])
-        .slice(0, 2)
-        .join("")
-        .toUpperCase()
-    : "?"
-  return (
-    <div
-      className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-primary text-xs font-bold ring-1 ring-border select-none"
-      title={name ?? "User"}
-      aria-label={name ?? "User avatar"}
-    >
-      {initials}
-    </div>
-  )
-}
-
-// Breadcrumb derived from current path
 function Breadcrumb({ pathname }: { pathname: string }) {
   const current = NAV_ITEMS.find(
     (item) => pathname === item.href || pathname.startsWith(item.href + "/")
   )
-  if (!current) return null
   return (
-    <nav aria-label="Breadcrumb" className="hidden sm:flex items-center gap-1.5 text-sm">
-      <span className="text-faint text-xs">CCI</span>
-      <ChevronRight className="h-3 w-3 text-faint" aria-hidden="true" />
-      <span className="font-medium text-foreground">{current.label}</span>
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[13px] min-w-0">
+      <Link
+        href="/dashboard"
+        className="text-faint hover:text-foreground transition-colors hidden sm:inline shrink-0"
+      >
+        CCI
+      </Link>
+      <ChevronRight className="h-3 w-3 text-faint hidden sm:inline shrink-0" aria-hidden="true" />
+      <span className="font-medium text-foreground truncate">
+        {current?.label ?? "Dashboard"}
+      </span>
     </nav>
   )
 }
 
-export function Navbar({ onMenuClick, title }: NavbarProps) {
-  const { resolvedTheme, toggle } = useTheme()
+export function Navbar({
+  onMenuClick,
+  onCommandOpen,
+  notifications,
+  unreadCount,
+  userId,
+  userName,
+  userEmail,
+  userRoleLabel,
+}: NavbarProps) {
   const pathname = usePathname()
 
-  async function handleSignOut() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    window.location.href = "/login"
-  }
-
   return (
-    <header className="flex h-16 items-center justify-between border-b border-border bg-surface px-4 lg:px-6 shrink-0">
+    <header
+      className={cn(
+        "flex h-14 items-center justify-between gap-3 border-b border-border bg-canvas",
+        "px-3 sm:px-5 shrink-0"
+      )}
+    >
       {/* Left: hamburger + breadcrumb */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
         {onMenuClick && (
-          <button
+          <IconButton
+            label="Open navigation"
+            size="sm"
             onClick={onMenuClick}
-            className="rounded-lg p-2 text-muted hover:text-foreground hover:bg-surface-subtle lg:hidden transition-colors duration-150"
-            aria-label="Open navigation"
+            className="lg:hidden"
           >
-            <Menu className="h-5 w-5" aria-hidden="true" />
-          </button>
+            <Menu className="h-4 w-4" aria-hidden="true" />
+          </IconButton>
         )}
-        {title ? (
-          <h1 className="text-[15px] font-semibold text-foreground hidden sm:block">{title}</h1>
-        ) : (
-          <Breadcrumb pathname={pathname} />
-        )}
+        <Breadcrumb pathname={pathname} />
       </div>
 
-      {/* Right: actions */}
-      <div className="flex items-center">
-        {/* Internal badge */}
-        <span className="hidden sm:inline-flex items-center rounded-md border border-border bg-surface-subtle px-2 py-0.5 text-[10px] font-semibold text-faint tracking-wide uppercase mr-3">
-          Internal
-        </span>
-
-        {/* Divider */}
-        <div className="h-5 w-px bg-border mx-1 hidden sm:block" aria-hidden="true" />
-
-        {/* Theme toggle */}
+      {/* Center: command trigger (sm+, mobile uses sidebar trigger) */}
+      <div className="hidden md:flex shrink-0">
         <button
-          onClick={toggle}
-          className="rounded-lg p-2 text-muted hover:text-foreground hover:bg-surface-subtle transition-colors duration-150"
-          aria-label={`Switch to ${resolvedTheme === "dark" ? "light" : "dark"} mode`}
-        >
-          {resolvedTheme === "dark" ? (
-            <Sun className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Moon className="h-4 w-4" aria-hidden="true" />
+          type="button"
+          onClick={onCommandOpen}
+          className={cn(
+            "group flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 h-8",
+            "text-[12.5px] text-faint",
+            "hover:bg-surface-hover hover:border-border-strong hover:text-muted transition-colors",
+            "min-w-[200px]"
           )}
-        </button>
-
-        {/* Notifications */}
-        <button
-          className="relative rounded-lg p-2 text-muted hover:text-foreground hover:bg-surface-subtle transition-colors duration-150"
-          aria-label="Notifications"
         >
-          <Bell className="h-4 w-4" aria-hidden="true" />
-          <span
-            className={cn(
-              "absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary",
-              "animate-pulse-dot"
-            )}
-            aria-hidden="true"
-          />
+          <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="flex-1 text-left">Search or jump to…</span>
+          <Kbd size="sm">⌘K</Kbd>
         </button>
+      </div>
 
-        {/* Divider */}
-        <div className="h-5 w-px bg-border mx-2" aria-hidden="true" />
-
-        {/* Sign out */}
-        <button
-          onClick={handleSignOut}
-          className="rounded-lg p-2 text-muted hover:text-foreground hover:bg-surface-subtle transition-colors duration-150"
-          aria-label="Sign out"
+      {/* Right: notifications + user menu */}
+      <div className="flex items-center gap-1 shrink-0">
+        {/* Mobile search trigger */}
+        <IconButton
+          label="Search"
+          size="sm"
+          onClick={onCommandOpen}
+          className="md:hidden"
         >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-        </button>
+          <Search className="h-4 w-4" aria-hidden="true" />
+        </IconButton>
 
-        {/* Avatar */}
-        <div className="ml-2">
-          <Avatar />
-        </div>
+        <NotificationsPopover
+          notifications={notifications}
+          unreadCount={unreadCount}
+          userId={userId}
+        />
+
+        <span className="h-5 w-px bg-border mx-1 hidden sm:block" aria-hidden="true" />
+
+        <UserMenu
+          name={userName}
+          email={userEmail}
+          roleLabel={userRoleLabel}
+        />
       </div>
     </header>
   )

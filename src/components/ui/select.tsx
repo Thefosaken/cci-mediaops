@@ -67,11 +67,19 @@ export function Select({
 
   // Auto-focus search when open
   React.useEffect(() => {
-    if (open && searchable) {
-      setTimeout(() => searchRef.current?.focus(), 20)
+    if (!open) return
+    if (searchable) {
+      const t = setTimeout(() => searchRef.current?.focus(), 20)
+      return () => clearTimeout(t)
     }
-    if (open) setFocusedIndex(-1)
   }, [open, searchable])
+
+  // Reset focused index when the dropdown opens or the query changes
+  const prevOpenRef = React.useRef(open)
+  React.useEffect(() => {
+    if (open && !prevOpenRef.current) setFocusedIndex(-1)
+    prevOpenRef.current = open
+  }, [open])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (disabled) return

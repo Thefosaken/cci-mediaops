@@ -1,62 +1,54 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import { format, isPast, isToday, isFuture } from "date-fns"
+import {
+  Calendar as CalendarIcon, MapPin, Plus, Search, Filter,
+  Copy, X as XIcon, MoreHorizontal, ListChecks, ScrollText,
+} from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { useToast } from "@/lib/toast/toast-context"
+import { useUrlState } from "@/lib/hooks/use-url-state"
+import { EVENT_TYPES } from "@/constants"
+import { cn } from "@/lib/utils/cn"
+import type { Event } from "@/types"
+
+type SubTeamLite = { id: string; name: string }
+
+import { PageHeader } from "@/components/ui/page-header"
+import { Toolbar, ToolbarGroup } from "@/components/ui/toolbar"
+import { Button, IconButton } from "@/components/ui/button"
+import { Input, Textarea } from "@/components/ui/input"
 import { Modal } from "@/components/ui/modal"
+import { SidePanel } from "@/components/ui/side-panel"
 import { Select } from "@/components/ui/select"
 import { Combobox } from "@/components/ui/combobox"
 import { DateInput } from "@/components/ui/date-input"
 import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/ui/status-badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { FormField } from "@/components/ui/form-field"
-import { useToast } from "@/lib/toast/toast-context"
-import { EVENT_TYPES } from "@/constants"
-import { Calendar, MapPin, Plus, Users } from "lucide-react"
-import { cn } from "@/lib/utils/cn"
-import type { Event, SubTeam } from "@/types"
+import { DataList, DataItem } from "@/components/ui/data-list"
+import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { duplicateEventTemplate, cancelEvent } from "@/server/actions/events"
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function eventBadgeVariant(status: string) {
-  switch (status) {
-    case "confirmed": return "success" as const
-    case "live":      return "info" as const
-    case "completed": return "muted" as const
-    case "cancelled": return "danger" as const
-    default:          return "warning" as const
-  }
+type EventWithTeams = Event & {
+  event_sub_teams?: { sub_team_id: string; sub_teams?: { id: string; name: string } | null }[]
 }
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
-  sunday_service: "border-l-info",
-  midweek_service: "border-l-success",
-  worship_night: "border-l-primary",
-  conference: "border-l-warning",
-  training: "border-l-muted",
-  rehearsal: "border-l-muted",
-  outreach: "border-l-success",
-  campus_event: "border-l-info",
-  department_event: "border-l-warning",
-  special_programme: "border-l-danger",
+  sunday_service: "bg-info",
+  midweek_service: "bg-success",
+  worship_night: "bg-primary",
+  conference: "bg-warning",
+  training: "bg-muted",
+  rehearsal: "bg-muted",
+  outreach: "bg-success",
+  campus_event: "bg-info",
+  department_event: "bg-warning",
+  special_programme: "bg-danger",
 }
-
-function groupByMonth(events: Event[]) {
-  const map = new Map<string, Event[]>()
-  for (const event of events) {
-    const key = new Date(event.start_time).toLocaleDateString("en-US", {
-      month: "long",
-      year: "numeric",
-    })
-    if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(event)
-  }
-  return map
-}
-
-// ── Component ────────────────────────────────────────────────────────────────
 
 const EMPTY_FORM = {
   title: "",
@@ -68,37 +60,62 @@ const EMPTY_FORM = {
   requiredSubTeams: [] as string[],
 }
 
+type Filter = "upcoming" | "past" | "all"
+
 export function CalendarPageClient({
   events,
   subTeams,
 }: {
-  events: Event[]
-  subTeams: SubTeam[]
+  events: EventWithTeams[]
+  subTeams: SubTeamLite[]
 }) {
   const router = useRouter()
-  const { success, error: showError } = useToast()
+  const { success, error: toastError } = useToast()
+  const { get, set, clear } = useUrlState()
 
-  const [showModal, setShowModal] = useState(false)
+  const detailId = get("id")
+  const showNew = get("new") === "1"
+
+  const [filter, setFilter] = useState<Filter>("upcoming")
+  const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
 
-  const subTeamOptions = subTeams.map((st) => ({ value: st.id, label: st.name }))
-  const eventTypeOptions = EVENT_TYPES.map((t) => ({ value: t.value, label: t.label }))
+  const detail = useMemo(() => events.find((e) => e.id === detailId) ?? null, [events, detailId])
 
-  const openModal = useCallback(() => {
-    setForm(EMPTY_FORM)
-    setShowModal(true)
-  }, [])
+  // Reset form when opening
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (showNew) setForm(EMPTY_FORM) }, [showNew])
 
-  const closeModal = useCallback(() => {
-    setShowModal(false)
-  }, [])
+  const filtered = useMemo(() => {
+    let list = events
+    if (filter === "upcoming") list = list.filter((e) => !isPast(new Date(e.start_time)) || isToday(new Date(e.start_time)))
+    if (filter === "past") list = list.filter((e) => isPast(new Date(e.start_time)) && !isToday(new Date(e.start_time)))
+    if (query.trim()) {
+      const q = query.toLowerCase()
+      list = list.filter((e) =>
+        e.title.toLowerCase().includes(q) ||
+        (e.location ?? "").toLowerCase().includes(q) ||
+        (e.event_type ?? "").toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [events, filter, query])
 
-  async function createEvent(e: React.FormEvent) {
+  const grouped = useMemo(() => {
+    const map = new Map<string, EventWithTeams[]>()
+    for (const e of filtered) {
+      const key = format(new Date(e.start_time), "MMMM yyyy")
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(e)
+    }
+    return map
+  }, [filtered])
+
+  async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!form.title.trim() || !form.startTime) return
     setLoading(true)
-
     try {
       const supabase = createClient()
       const { data: campus } = await supabase.from("campuses").select("id").limit(1).single()
@@ -106,10 +123,7 @@ export function CalendarPageClient({
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
       const { data: user } = await supabase
-        .from("users")
-        .select("id")
-        .eq("auth_user_id", authUser?.id)
-        .single()
+        .from("users").select("id").eq("auth_user_id", authUser?.id).single()
 
       const { data: event, error } = await supabase
         .from("events")
@@ -123,10 +137,7 @@ export function CalendarPageClient({
           end_time: form.endTime || null,
           status: "draft",
           created_by: user?.id,
-        })
-        .select()
-        .single()
-
+        }).select().single()
       if (error) throw new Error(error.message)
 
       if (event && form.requiredSubTeams.length > 0) {
@@ -134,209 +145,317 @@ export function CalendarPageClient({
           form.requiredSubTeams.map((st) => ({ event_id: event.id, sub_team_id: st }))
         )
       }
-
-      closeModal()
-      success("Event created successfully.")
+      clear("new")
+      success("Event created", { label: "Open", onClick: () => set({ id: event!.id }) })
       router.refresh()
     } catch (err) {
-      showError(err instanceof Error ? err.message : "Failed to create event. Please try again.", {
-        label: "Retry",
-        onClick: () => (e.target as HTMLFormElement).requestSubmit?.(),
-      })
+      toastError(err instanceof Error ? err.message : "Failed to create event")
     } finally {
       setLoading(false)
     }
   }
 
-  const grouped = groupByMonth(events)
+  async function handleDuplicate(id: string) {
+    const r = await duplicateEventTemplate(id)
+    if (r.error) toastError(r.error)
+    else { success("Event duplicated"); router.refresh() }
+  }
+
+  async function handleCancel(id: string) {
+    const r = await cancelEvent(id)
+    if (r.error) toastError(r.error)
+    else { success("Event cancelled"); router.refresh(); clear("id") }
+  }
 
   return (
-    <div className="p-6 lg:p-8 space-y-6">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Calendar</h1>
-          <p className="text-sm text-muted mt-0.5">Services, events, rehearsals, and deadlines</p>
-        </div>
-        <Button onClick={openModal}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Create Event
-        </Button>
-      </div>
+    <div className="flex flex-col">
+      <PageHeader
+        title="Calendar"
+        description="Services, events, rehearsals, and deadlines"
+        icon={<CalendarIcon />}
+        actions={
+          <Button size="sm" onClick={() => set({ new: "1" })}>
+            <Plus className="h-3.5 w-3.5" /> New event
+          </Button>
+        }
+      />
 
-      {/* Event list */}
-      {events.length === 0 ? (
-        <EmptyState
-          icon={<Calendar className="h-6 w-6" />}
-          title="No events yet"
-          description="Create your first event to start managing your media schedule."
-          action={{ label: "Create Event", onClick: openModal }}
-        />
-      ) : (
-        <div className="space-y-6">
-          {Array.from(grouped.entries()).map(([month, monthEvents]) => (
+      <Toolbar>
+        <ToolbarGroup>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search events…"
+            leadingIcon={<Search />}
+            className="h-8 w-[260px]"
+          />
+          <span className="hidden sm:inline-flex items-center gap-1 text-[12px] text-faint">
+            <Filter className="h-3 w-3" /> View:
+          </span>
+          <div className="inline-flex rounded-md border border-border bg-surface p-0.5">
+            {(["upcoming", "past", "all"] as Filter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={cn(
+                  "px-2.5 py-1 text-[12px] font-medium rounded-[5px] capitalize transition-colors",
+                  filter === f
+                    ? "bg-surface-subtle text-foreground"
+                    : "text-muted hover:text-foreground"
+                )}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </ToolbarGroup>
+        <span className="text-[11.5px] text-faint tabular-nums">
+          {filtered.length} {filtered.length === 1 ? "event" : "events"}
+        </span>
+      </Toolbar>
+
+      <div className="px-5 sm:px-6 py-6 space-y-6">
+        {filtered.length === 0 ? (
+          <EmptyState
+            icon={<CalendarIcon />}
+            title={events.length === 0 ? "No events yet" : "No matching events"}
+            description={
+              events.length === 0
+                ? "Create your first event to start planning your media schedule."
+                : "Try a different search or switch the view."
+            }
+            action={events.length === 0 ? { label: "Create event", onClick: () => set({ new: "1" }) } : undefined}
+          />
+        ) : (
+          Array.from(grouped.entries()).map(([month, monthEvents]) => (
             <div key={month}>
-              {/* Month divider */}
-              <div className="flex items-center gap-3 mb-3">
-                <p className="text-xs font-bold text-faint uppercase tracking-widest">{month}</p>
+              <div className="flex items-center gap-3 mb-2">
+                <p className="text-[10.5px] font-semibold text-faint uppercase tracking-wider">
+                  {month}
+                </p>
                 <div className="h-px flex-1 bg-border" aria-hidden="true" />
+                <span className="text-[10.5px] text-faint tabular-nums">{monthEvents.length}</span>
               </div>
-
-              {/* Events in this month */}
-              <div className="space-y-2">
+              <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
                 {monthEvents.map((event) => {
                   const start = new Date(event.start_time)
-                  const typeColor = EVENT_TYPE_COLORS[event.event_type ?? ""] ?? "border-l-border"
+                  const typeColor = EVENT_TYPE_COLORS[event.event_type ?? ""] ?? "bg-muted"
                   const typeLabel = EVENT_TYPES.find((t) => t.value === event.event_type)?.label
-
                   return (
-                    <div
+                    <button
                       key={event.id}
-                      className={cn(
-                        "flex items-center gap-4 rounded-xl border border-border bg-surface px-4 py-3.5",
-                        "transition-colors duration-150 hover:border-border-strong",
-                        typeColor
-                      )}
+                      type="button"
+                      onClick={() => set({ id: event.id })}
+                      className="group flex items-center gap-3 px-4 py-3 w-full text-left hover:bg-surface-hover transition-colors"
                     >
-                      {/* Date column */}
-                      <div className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-lg bg-canvas border border-border leading-none">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-faint">
-                          {start.toLocaleDateString("en-US", { month: "short" })}
+                      {/* Type indicator */}
+                      <div className={cn("h-7 w-0.5 rounded-full shrink-0", typeColor)} aria-hidden="true" />
+
+                      {/* Date */}
+                      <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-md bg-surface-subtle border border-border leading-none">
+                        <span className="text-[8.5px] font-semibold uppercase tracking-wider text-faint">
+                          {format(start, "MMM")}
                         </span>
-                        <span className="text-base font-bold text-foreground leading-tight">
-                          {start.getDate()}
+                        <span className="text-[14px] font-semibold tabular-nums">
+                          {format(start, "d")}
                         </span>
                       </div>
 
-                      {/* Content */}
+                      {/* Title + meta */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-foreground">{event.title}</p>
-                          {typeLabel && (
-                            <Badge variant="muted" className="text-[10px]">{typeLabel}</Badge>
-                          )}
+                          <span className="text-[13.5px] font-medium text-foreground truncate">
+                            {event.title}
+                          </span>
+                          {typeLabel && <Badge variant="muted" size="sm">{typeLabel}</Badge>}
                         </div>
-                        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                          <p className="text-xs text-muted">
-                            {start.toLocaleDateString("en-US", {
-                              weekday: "short",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </p>
+                        <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted">
+                          <span className="tabular-nums">{format(start, "EEE · h:mm a")}</span>
                           {event.location && (
-                            <span className="flex items-center gap-1 text-xs text-faint">
-                              <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+                            <>
+                              <span className="text-faint">·</span>
+                              <MapPin className="h-3 w-3" aria-hidden="true" />
                               <span className="truncate max-w-[200px]">{event.location}</span>
-                            </span>
+                            </>
+                          )}
+                          {event.event_sub_teams && event.event_sub_teams.length > 0 && (
+                            <>
+                              <span className="text-faint">·</span>
+                              <span className="text-faint">{event.event_sub_teams.length} sub-teams</span>
+                            </>
                           )}
                         </div>
                       </div>
 
-                      {/* Status badge */}
-                      <Badge variant={eventBadgeVariant(event.status ?? "")} dot>
-                        {(event.status ?? "draft").replace(/_/g, " ")}
-                      </Badge>
-                    </div>
+                      <StatusBadge status={event.status ?? "draft"} size="sm" />
+                    </button>
                   )
                 })}
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
 
-      {/* Create Event Modal */}
+      {/* Create modal */}
       <Modal
-        open={showModal}
-        onClose={closeModal}
-        title="New Event"
+        open={showNew}
+        onClose={() => clear("new")}
+        title="New event"
         description="Add a service, rehearsal, or event to the calendar."
+        size="lg"
         footer={
           <>
-            <Button variant="ghost" onClick={closeModal} disabled={loading}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              form="create-event-form"
-              loading={loading}
-              disabled={loading}
-            >
-              Create Event
+            <Button variant="ghost" onClick={() => clear("new")} disabled={loading}>Cancel</Button>
+            <Button type="submit" form="create-event-form" loading={loading} disabled={loading}>
+              Create event
             </Button>
           </>
         }
       >
-        <form id="create-event-form" onSubmit={createEvent} className="space-y-4">
+        <form id="create-event-form" onSubmit={handleCreate} className="space-y-4 py-2">
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="Event title" required className="sm:col-span-2">
-              <Input
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder="e.g. Sunday Morning Service"
-                required
-              />
+              <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder="e.g. Sunday Morning Service" required autoFocus />
             </FormField>
-
             <FormField label="Event type">
               <Select
                 value={form.eventType}
                 onChange={(v) => setForm({ ...form, eventType: v })}
-                options={eventTypeOptions}
+                options={EVENT_TYPES.map((t) => ({ value: t.value, label: t.label }))}
               />
             </FormField>
-
             <FormField label="Location" helper="Optional venue or room">
-              <Input
-                value={form.location}
-                onChange={(e) => setForm({ ...form, location: e.target.value })}
-                placeholder="e.g. Main Auditorium"
-              />
+              <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
+                placeholder="e.g. Main Auditorium" />
             </FormField>
-
-            <FormField label="Start date & time" required>
-              <DateInput
-                type="datetime-local"
-                value={form.startTime}
-                onChange={(e) => setForm({ ...form, startTime: e.target.value })}
-                required
-              />
+            <FormField label="Start" required>
+              <DateInput type="datetime-local" value={form.startTime}
+                onChange={(e) => setForm({ ...form, startTime: e.target.value })} required />
             </FormField>
-
-            <FormField label="End date & time" helper="Optional">
-              <DateInput
-                type="datetime-local"
-                value={form.endTime}
-                onChange={(e) => setForm({ ...form, endTime: e.target.value })}
-              />
+            <FormField label="End" helper="Optional">
+              <DateInput type="datetime-local" value={form.endTime}
+                onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
             </FormField>
           </div>
-
-          <FormField label="Description" helper="Optional additional details">
-            <textarea
-              className={cn(
-                "flex min-h-[80px] w-full rounded-lg border border-border bg-canvas px-3 py-2",
-                "text-sm text-foreground placeholder:text-faint resize-none",
-                "transition-colors duration-150 hover:border-border-strong",
-                "focus-visible:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-focus-ring/20"
-              )}
-              value={form.description}
+          <FormField label="Description" helper="What's happening at this event?">
+            <Textarea value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="What's happening at this event?"
-            />
+              placeholder="Add context for the team…" />
           </FormField>
-
-          <FormField label="Required sub-teams" helper="Which teams need to be involved?">
-            <Combobox
-              values={form.requiredSubTeams}
+          <FormField label="Required sub-teams" helper="Add any teams that need to plan for this">
+            <Combobox values={form.requiredSubTeams}
               onChange={(v) => setForm({ ...form, requiredSubTeams: v })}
-              options={subTeamOptions}
-              placeholder="Select sub-teams…"
-            />
+              options={subTeams.map((s) => ({ value: s.id, label: s.name }))}
+              placeholder="Select sub-teams…" />
           </FormField>
         </form>
       </Modal>
+
+      {/* Detail side panel */}
+      <SidePanel
+        open={!!detail}
+        onClose={() => clear("id")}
+        title={detail?.title ?? "Event"}
+        headerSlot={detail && <StatusBadge status={detail.status ?? "draft"} size="sm" />}
+        size="lg"
+        footer={
+          detail && (
+            <>
+              <DropdownMenu
+                trigger={
+                  <Button variant="ghost" size="sm">
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </Button>
+                }
+              >
+                <DropdownMenuItem icon={<Copy />} onSelect={() => handleDuplicate(detail.id)}>
+                  Duplicate event
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem icon={<XIcon />} variant="danger" onSelect={() => handleCancel(detail.id)}>
+                  Cancel event
+                </DropdownMenuItem>
+              </DropdownMenu>
+              <Button variant="secondary" size="sm" onClick={() => router.push(`/scheduling?event=${detail.id}`)}>
+                <ListChecks className="h-3.5 w-3.5" /> Schedule
+              </Button>
+              <Button size="sm" onClick={() => router.push(`/run-sheets?event=${detail.id}`)}>
+                <ScrollText className="h-3.5 w-3.5" /> Run sheet
+              </Button>
+            </>
+          )
+        }
+      >
+        {detail && <EventDetail event={detail} />}
+      </SidePanel>
+    </div>
+  )
+}
+
+function EventDetail({ event }: { event: EventWithTeams }) {
+  const start = new Date(event.start_time)
+  const end = event.end_time ? new Date(event.end_time) : null
+  const teams = event.event_sub_teams?.map((j) => j.sub_teams?.name).filter(Boolean) as string[] | undefined
+  const upcomingOrLive = isFuture(start) || isToday(start)
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-3">
+        <div className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-md bg-surface border border-border leading-none">
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-faint">
+            {format(start, "MMM")}
+          </span>
+          <span className="text-[15px] font-semibold tabular-nums">{format(start, "d")}</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium text-foreground tabular-nums">
+            {format(start, "EEEE, MMMM d")}
+          </div>
+          <div className="text-[12px] text-muted tabular-nums">
+            {format(start, "h:mm a")}
+            {end && ` – ${format(end, "h:mm a")}`}
+          </div>
+        </div>
+        {upcomingOrLive && (
+          <Badge variant={isToday(start) ? "default" : "info"} size="sm">
+            {isToday(start) ? "Today" : "Upcoming"}
+          </Badge>
+        )}
+      </div>
+
+      <DataList>
+        <DataItem label="Type">
+          {EVENT_TYPES.find((t) => t.value === event.event_type)?.label ?? event.event_type}
+        </DataItem>
+        <DataItem label="Location">{event.location}</DataItem>
+        <DataItem label="Sub-teams">
+          {teams && teams.length > 0
+            ? (
+              <div className="flex flex-wrap gap-1">
+                {teams.map((t) => <Badge key={t} variant="muted" size="sm">{t}</Badge>)}
+              </div>
+            )
+            : null}
+        </DataItem>
+        <DataItem label="Description">
+          {event.description ? <p className="whitespace-pre-wrap">{event.description}</p> : null}
+        </DataItem>
+      </DataList>
+
+      <div className="rounded-lg border border-border bg-surface-subtle/40 p-3">
+        <p className="text-[11.5px] font-semibold uppercase tracking-wider text-faint mb-2">
+          Quick actions
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <a href={`/scheduling?event=${event.id}`} className="rounded-md border border-border bg-surface px-3 py-2 text-[12.5px] font-medium hover:bg-surface-hover transition-colors flex items-center gap-2">
+            <ListChecks className="h-3.5 w-3.5 text-faint" /> Build schedule
+          </a>
+          <a href={`/run-sheets?event=${event.id}`} className="rounded-md border border-border bg-surface px-3 py-2 text-[12.5px] font-medium hover:bg-surface-hover transition-colors flex items-center gap-2">
+            <ScrollText className="h-3.5 w-3.5 text-faint" /> Build run sheet
+          </a>
+        </div>
+      </div>
     </div>
   )
 }

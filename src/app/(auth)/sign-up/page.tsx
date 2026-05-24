@@ -1,16 +1,16 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { UserPlus, MailCheck } from "lucide-react"
-import { EmptyState } from "@/components/ui/empty-state"
+import { FormField } from "@/components/ui/form-field"
+import { AlertCircle, ArrowRight, MailCheck } from "lucide-react"
 
 export default function SignUpPage() {
+  const router = useRouter()
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
@@ -18,7 +18,6 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const router = useRouter()
 
   async function handleSignUp(e: React.FormEvent) {
     e.preventDefault()
@@ -26,7 +25,6 @@ export default function SignUpPage() {
     setError(null)
 
     const supabase = createClient()
-
     const { error: signUpError } = await supabase.auth.signUp({
       email,
       password,
@@ -50,124 +48,106 @@ export default function SignUpPage() {
 
   if (success) {
     return (
-      <div className="w-full max-w-[400px]">
-        <div className="bg-surface border border-border-subtle rounded-2xl p-8 shadow-sm">
-          <EmptyState
-            icon={<MailCheck className="h-6 w-6" />}
-            title="Check your email"
-            description={
-              <span>
-                We sent a confirmation link to <strong className="text-foreground">{email}</strong>. Please confirm your email address, then sign in.
-              </span>
-            }
-            action={{
-              label: "Go to Sign In",
-              onClick: () => router.push("/login"),
-            }}
-          />
+      <div className="text-center">
+        <div className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-surface-subtle border border-border text-success">
+          <MailCheck className="h-5 w-5" aria-hidden="true" />
         </div>
+        <h1 className="text-[18px] font-semibold tracking-tight text-foreground">Check your email</h1>
+        <p className="mt-2 text-[13.5px] text-muted leading-relaxed">
+          We sent a confirmation link to{" "}
+          <strong className="font-medium text-foreground">{email}</strong>. Click it to
+          verify your account.
+        </p>
+        <div className="mt-2 rounded-lg border border-border bg-surface-subtle px-3 py-2.5 text-left">
+          <p className="text-[12.5px] text-muted leading-snug">
+            <span className="font-medium text-foreground">Next step:</span> after verification,
+            a media admin will activate your account. You&apos;ll be notified when access is granted.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="lg"
+          fullWidth
+          className="mt-6"
+          onClick={() => router.push("/login")}
+        >
+          Back to sign in
+        </Button>
       </div>
     )
   }
 
   return (
-    <div className="w-full max-w-[400px]">
-      <div className="bg-surface border border-border-subtle rounded-2xl p-8 shadow-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground mb-1.5">Create an account</h1>
-          <p className="text-sm text-muted">Join the CCI Media team</p>
-        </div>
-
-        <form onSubmit={handleSignUp} className="space-y-5">
-          {error && (
-            <div className="bg-danger/10 text-danger text-sm rounded-lg p-3 border border-danger/20 flex items-start gap-2">
-              <span className="shrink-0 font-medium">!</span>
-              <p>{error}</p>
-            </div>
-          )}
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="fullName" className="text-foreground/80">Full Name</Label>
-              <Input
-                id="fullName"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="John Smith"
-                required
-                autoFocus
-                className="rounded-lg h-10 transition-shadow focus:ring-2 focus:ring-border-strong border-border-subtle"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-foreground/80">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                className="rounded-lg h-10 transition-shadow focus:ring-2 focus:ring-border-strong border-border-subtle"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone" className="text-foreground/80">Phone <span className="text-muted">(optional)</span></Label>
-              <Input
-                id="phone"
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+234 800 000 0000"
-                className="rounded-lg h-10 transition-shadow focus:ring-2 focus:ring-border-strong border-border-subtle"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-foreground/80">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-                minLength={8}
-                required
-                className="rounded-lg h-10 transition-shadow focus:ring-2 focus:ring-border-strong border-border-subtle"
-              />
-            </div>
-          </div>
-
-          <Button type="submit" className="w-full rounded-md h-10 font-medium transition-transform active:scale-[0.98]" disabled={loading}>
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
-                Creating account...
-              </span>
-            ) : (
-              "Create Account"
-            )}
-          </Button>
-        </form>
-
-        <div className="mt-6 flex items-center gap-3">
-          <div className="flex-1 h-px bg-border-subtle" />
-          <span className="text-xs text-muted font-medium uppercase tracking-wider">or</span>
-          <div className="flex-1 h-px bg-border-subtle" />
-        </div>
-
-        <div className="mt-6">
-          <Button variant="secondary" type="button" className="w-full rounded-md h-10 text-foreground border border-border-subtle hover:bg-surface-subtle transition-colors">
-            Sign up with GitHub
-          </Button>
-        </div>
+    <div>
+      <div className="mb-7">
+        <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Request access</h1>
+        <p className="text-[13.5px] text-muted mt-1.5">
+          Create an account. A media admin will approve you before you can sign in.
+        </p>
       </div>
 
-      <p className="mt-8 text-center text-sm text-muted">
+      {error && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2.5 text-[13px] text-danger">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSignUp} className="space-y-4">
+        <FormField label="Full name" required>
+          <Input
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="John Smith"
+            required
+            autoFocus
+            autoComplete="name"
+          />
+        </FormField>
+        <FormField label="Email" required>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+            autoComplete="email"
+          />
+        </FormField>
+        <FormField label="Phone" helper="Optional — used for high-priority service alerts">
+          <Input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+234 800 000 0000"
+            autoComplete="tel"
+          />
+        </FormField>
+        <FormField label="Password" required helper="At least 8 characters">
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            minLength={8}
+            required
+            autoComplete="new-password"
+          />
+        </FormField>
+
+        <Button type="submit" loading={loading} fullWidth size="lg" className="mt-1">
+          {loading ? "Creating account…" : (
+            <>
+              Create account
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </>
+          )}
+        </Button>
+      </form>
+
+      <p className="mt-7 text-center text-[13px] text-muted">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-foreground hover:underline underline-offset-4 transition-all">
+        <Link href="/login" className="font-medium text-foreground hover:text-primary transition-colors underline-offset-4 hover:underline">
           Sign in
         </Link>
       </p>

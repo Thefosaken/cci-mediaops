@@ -1,34 +1,40 @@
 "use client"
 
+import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { EmptyState } from "@/components/ui/empty-state"
+import { format, formatDistanceToNow } from "date-fns"
+import {
+  ClipboardCheck, ExternalLink, CheckCircle2, XCircle,
+  RotateCcw, MessageSquare, Clock,
+} from "lucide-react"
 import { useToast } from "@/lib/toast/toast-context"
-import { useState } from "react"
-import { ClipboardCheck, ExternalLink, Clock } from "lucide-react"
+import { useUrlState } from "@/lib/hooks/use-url-state"
 import { cn } from "@/lib/utils/cn"
+
+import { PageHeader } from "@/components/ui/page-header"
+import { Toolbar, ToolbarGroup } from "@/components/ui/toolbar"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { StatusBadge } from "@/components/ui/status-badge"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { SidePanel } from "@/components/ui/side-panel"
+import { DataList, DataItem } from "@/components/ui/data-list"
+import { FormField } from "@/components/ui/form-field"
+import { Avatar } from "@/components/ui/avatar"
+import { approveItem, requestChanges, rejectItem } from "@/server/actions/approvals"
 
 interface ApprovalRecord {
   id: string
   status: string
   submitted_link: string | null
   feedback: string | null
-  requests: { title: string; requesting_unit: string } | null
-  tasks: { title: string } | null
+  requests?: { id: string; title?: string; requesting_unit?: string; deadline?: string | null; priority?: string } | null
+  tasks?: { id: string; title?: string } | null
+  submitted_by_user?: { full_name: string | null; email: string | null } | null
   created_at: string
   decided_at: string | null
-}
-
-function historyBadgeVariant(status: string) {
-  switch (status) {
-    case "approved":           return "success" as const
-    case "rejected":           return "danger" as const
-    case "changes_requested":  return "warning" as const
-    default:                   return "muted" as const
-  }
 }
 
 export function ApprovalsPageClient({
@@ -38,176 +44,251 @@ export function ApprovalsPageClient({
   pending: ApprovalRecord[]
   history: ApprovalRecord[]
 }) {
-  const router   = useRouter()
-  const { success, error: showError, info } = useToast()
-  const [feedback, setFeedback] = useState<Record<string, string>>({})
-  const [loading, setLoading]   = useState<Record<string, boolean>>({})
+  const router = useRouter()
+  const { success, error: toastError } = useToast()
+  const { get, set, clear } = useUrlState()
 
-  async function handleAction(approvalId: string, status: string) {
-    setLoading((p) => ({ ...p, [approvalId]: true }))
-    try {
-      const supabase = createClient()
-      const { error } = await supabase
-        .from("approvals")
-        .update({ status, feedback: feedback[approvalId] || null, decided_at: new Date().toISOString() })
-        .eq("id", approvalId)
-      if (error) throw error
+  const [tab, setTab] = useState<string>(get("tab") ?? "pending")
+  const detailId = get("id")
 
-      if (status === "approved") {
-        const { data: approval } = await supabase.from("approvals").select("request_id, task_id").eq("id", approvalId).single()
-        if (approval?.request_id) await supabase.from("requests").update({ status: "completed" }).eq("id", approval.request_id)
-        if (approval?.task_id)    await supabase.from("tasks").update({ status: "completed" }).eq("id", approval.task_id)
-        success("Approved and marked complete.")
-      } else if (status === "rejected") {
-        info("Request rejected.")
-      } else {
-        info("Changes requested.")
-      }
+  const all = useMemo(() => [...pending, ...history], [pending, history])
+  const detail = useMemo(() => all.find((a) => a.id === detailId) ?? null, [all, detailId])
 
-      router.refresh()
-    } catch { showError("Action failed. Please try again.") }
-    finally { setLoading((p) => ({ ...p, [approvalId]: false })) }
+  const list = tab === "pending" ? pending : history
+
+  async function approve(id: string, feedback?: string) {
+    const r = await approveItem(id, feedback)
+    if (r.error) toastError(r.error)
+    else { success("Approved"); router.refresh(); clear("id") }
+  }
+
+  async function changes(id: string, feedback: string) {
+    if (!feedback.trim()) { toastError("Add feedback explaining what to change"); return }
+    const r = await requestChanges(id, feedback)
+    if (r.error) toastError(r.error)
+    else { success("Changes requested"); router.refresh(); clear("id") }
+  }
+
+  async function reject(id: string, reason: string) {
+    if (!reason.trim()) { toastError("Add a reason for rejection"); return }
+    const r = await rejectItem(id, reason)
+    if (r.error) toastError(r.error)
+    else { success("Rejected"); router.refresh(); clear("id") }
   }
 
   return (
-    <div className="p-6 lg:p-8 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">Approvals</h1>
-        <p className="text-sm text-muted mt-0.5">Review and approve submitted work</p>
+    <div className="flex flex-col">
+      <PageHeader
+        title="Approvals"
+        description="Review and decide on submitted work"
+        icon={<ClipboardCheck />}
+      />
+
+      <div className="border-b border-border bg-canvas px-5 sm:px-6">
+        <Tabs value={tab} onValueChange={(v) => { setTab(v); set({ tab: v === "pending" ? null : v }) }}>
+          <TabsList>
+            <TabsTrigger value="pending" badge={pending.length || undefined}>Pending</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
-      {/* Pending approvals */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <p className="text-[13px] font-semibold text-foreground">Pending</p>
-          {pending.length > 0 && (
-            <span className="inline-flex items-center rounded-md bg-warning-soft text-warning border border-warning/20 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
-              {pending.length}
-            </span>
-          )}
-        </div>
-
-        {pending.length === 0 ? (
-          <EmptyState
-            icon={<ClipboardCheck className="h-5 w-5" />}
-            title="All caught up"
-            description="No pending approvals at the moment."
-          />
+      <div className="px-5 sm:px-6 py-6">
+        {list.length === 0 ? (
+          tab === "pending" ? (
+            <EmptyState
+              icon={<ClipboardCheck />}
+              title="All caught up"
+              description="No items waiting for your approval right now."
+            />
+          ) : (
+            <EmptyState
+              icon={<Clock />}
+              title="No history yet"
+              description="Decisions you make will be recorded here."
+            />
+          )
         ) : (
-          <div className="space-y-3">
-            {pending.map((a) => {
-              const title = a.requests?.title ?? a.tasks?.title ?? "Approval Request"
-              const isLoading = loading[a.id]
+          <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+            {list.map((a) => {
+              const title = a.requests?.title ?? a.tasks?.title ?? "Approval request"
               return (
-                <div
+                <button
                   key={a.id}
-                  className="rounded-xl border border-border bg-surface p-5 hover:border-border-strong transition-colors duration-150"
+                  type="button"
+                  onClick={() => set({ id: a.id })}
+                  className="w-full text-left px-4 py-3 hover:bg-surface-hover transition-colors group"
                 >
-                  {/* Title + meta */}
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-foreground">{title}</p>
-                      {a.requests?.requesting_unit && (
-                        <p className="text-xs text-muted mt-0.5">From {a.requests.requesting_unit}</p>
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[13.5px] font-medium text-foreground">{title}</span>
+                        {a.requests?.priority === "urgent" && (
+                          <Badge variant="danger" size="sm">Urgent</Badge>
+                        )}
+                        {a.requests?.priority === "high" && (
+                          <Badge variant="warning" size="sm">High</Badge>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 text-[12px] text-muted flex-wrap">
+                        {a.requests?.requesting_unit && (
+                          <>
+                            <span>{a.requests.requesting_unit}</span>
+                            <span className="text-faint">·</span>
+                          </>
+                        )}
+                        {a.submitted_by_user?.full_name && (
+                          <>
+                            <span className="inline-flex items-center gap-1">
+                              <Avatar name={a.submitted_by_user.full_name} size="xs" />
+                              {a.submitted_by_user.full_name}
+                            </span>
+                            <span className="text-faint">·</span>
+                          </>
+                        )}
+                        <span className="tabular-nums">
+                          {tab === "pending"
+                            ? `Submitted ${formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}`
+                            : a.decided_at && `Decided ${format(new Date(a.decided_at), "MMM d")}`}
+                        </span>
+                      </div>
+                      {a.submitted_link && (
+                        <a
+                          href={a.submitted_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 mt-1.5 text-[12px] text-primary hover:underline underline-offset-2"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Open submitted work
+                        </a>
                       )}
-                      <p className="text-xs text-faint flex items-center gap-1 mt-1">
-                        <Clock className="h-3 w-3" aria-hidden="true" />
-                        {new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </p>
+                      {a.feedback && tab === "history" && (
+                        <p className="mt-1.5 text-[12px] text-muted line-clamp-2">
+                          <MessageSquare className="inline h-3 w-3 mr-1" />
+                          {a.feedback}
+                        </p>
+                      )}
                     </div>
-                    {a.submitted_link && (
-                      <a
-                        href={a.submitted_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:underline underline-offset-2"
-                      >
-                        View work <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                      </a>
-                    )}
+                    <StatusBadge status={a.status} size="sm" />
                   </div>
-
-                  {/* Feedback + actions */}
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Input
-                      className="flex-1"
-                      placeholder="Feedback (optional)"
-                      value={feedback[a.id] ?? ""}
-                      onChange={(e) => setFeedback((prev) => ({ ...prev, [a.id]: e.target.value }))}
-                    />
-                    <div className="flex gap-2 shrink-0">
-                      <Button
-                        size="sm"
-                        onClick={() => handleAction(a.id, "approved")}
-                        loading={isLoading}
-                        disabled={isLoading}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleAction(a.id, "changes_requested")}
-                        disabled={isLoading}
-                      >
-                        Request Changes
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => handleAction(a.id, "rejected")}
-                        disabled={isLoading}
-                      >
-                        Reject
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+                </button>
               )
             })}
           </div>
         )}
       </div>
 
-      {/* Divider */}
-      <div className="h-px bg-border" aria-hidden="true" />
-
-      {/* History */}
-      <div>
-        <p className="text-[13px] font-semibold text-foreground mb-3">History</p>
-        {history.length === 0 ? (
-          <p className="text-sm text-faint">No decisions recorded yet.</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {history.map((a) => (
-              <li
-                key={a.id}
-                className="flex items-center justify-between rounded-lg border border-border bg-surface px-4 py-3 hover:border-border-strong transition-colors"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {a.requests?.title ?? a.tasks?.title ?? "Item"}
-                  </p>
-                  {a.feedback && (
-                    <p className="text-xs text-faint truncate">{a.feedback}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 ml-3 shrink-0">
-                  {a.decided_at && (
-                    <span className="text-xs text-faint tabular-nums hidden sm:block">
-                      {new Date(a.decided_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </span>
-                  )}
-                  <Badge variant={historyBadgeVariant(a.status)} dot>
-                    {a.status.replace(/_/g, " ")}
-                  </Badge>
-                </div>
-              </li>
-            ))}
-          </ul>
+      {/* Detail panel */}
+      <SidePanel
+        open={!!detail}
+        onClose={() => clear("id")}
+        title={detail?.requests?.title ?? detail?.tasks?.title ?? "Approval"}
+        headerSlot={detail && <StatusBadge status={detail.status} size="sm" />}
+        size="lg"
+      >
+        {detail && (
+          <ApprovalDetail
+            approval={detail}
+            onApprove={(fb) => approve(detail.id, fb)}
+            onChanges={(fb) => changes(detail.id, fb)}
+            onReject={(reason) => reject(detail.id, reason)}
+          />
         )}
-      </div>
+      </SidePanel>
+    </div>
+  )
+}
+
+function ApprovalDetail({
+  approval: a,
+  onApprove, onChanges, onReject,
+}: {
+  approval: ApprovalRecord
+  onApprove: (fb?: string) => void
+  onChanges: (fb: string) => void
+  onReject: (reason: string) => void
+}) {
+  const [feedback, setFeedback] = useState("")
+  const decided = a.status !== "pending"
+
+  return (
+    <div className="space-y-5">
+      <DataList>
+        <DataItem label="Type">
+          {a.requests ? <Badge variant="muted" size="sm">Request</Badge> : <Badge variant="muted" size="sm">Task</Badge>}
+        </DataItem>
+        <DataItem label="Submitted by">
+          {a.submitted_by_user ? (
+            <div className="flex items-center gap-1.5">
+              <Avatar name={a.submitted_by_user.full_name} email={a.submitted_by_user.email} size="xs" />
+              {a.submitted_by_user.full_name ?? a.submitted_by_user.email}
+            </div>
+          ) : null}
+        </DataItem>
+        <DataItem label="Unit">{a.requests?.requesting_unit}</DataItem>
+        <DataItem label="Deadline">
+          {a.requests?.deadline ? format(new Date(a.requests.deadline), "MMM d, yyyy") : null}
+        </DataItem>
+        <DataItem label="Submitted">
+          <span className="tabular-nums">{format(new Date(a.created_at), "MMM d, yyyy 'at' h:mm a")}</span>
+        </DataItem>
+        {decided && a.decided_at && (
+          <DataItem label="Decided">
+            <span className="tabular-nums">{format(new Date(a.decided_at), "MMM d, yyyy 'at' h:mm a")}</span>
+          </DataItem>
+        )}
+      </DataList>
+
+      {a.submitted_link && (
+        <a
+          href={a.submitted_link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-subtle/50 px-3 py-2.5 hover:bg-surface-subtle transition-colors"
+        >
+          <div className="min-w-0">
+            <p className="text-[11.5px] font-semibold uppercase tracking-wider text-faint">
+              Submitted work
+            </p>
+            <p className="text-[13px] text-primary truncate">{a.submitted_link}</p>
+          </div>
+          <ExternalLink className="h-4 w-4 text-primary shrink-0" />
+        </a>
+      )}
+
+      {decided ? (
+        a.feedback && (
+          <div>
+            <p className="text-[11.5px] font-semibold uppercase tracking-wider text-faint mb-1.5">
+              Decision feedback
+            </p>
+            <p className="text-[13px] text-foreground whitespace-pre-wrap leading-relaxed">{a.feedback}</p>
+          </div>
+        )
+      ) : (
+        <>
+          <FormField label="Feedback" helper="Required for request changes or rejection — optional for approve.">
+            <Textarea
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              placeholder="Add context for the requester…"
+              rows={4}
+            />
+          </FormField>
+          <div className="flex flex-col gap-2 pt-2">
+            <Button onClick={() => onApprove(feedback || undefined)}>
+              <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+            </Button>
+            <Button variant="secondary" onClick={() => onChanges(feedback)} disabled={!feedback.trim()}>
+              <RotateCcw className="h-3.5 w-3.5" /> Request changes
+            </Button>
+            <Button variant="danger" onClick={() => onReject(feedback)} disabled={!feedback.trim()}>
+              <XCircle className="h-3.5 w-3.5" /> Reject
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
