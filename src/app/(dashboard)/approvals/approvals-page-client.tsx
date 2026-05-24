@@ -60,19 +60,19 @@ export function ApprovalsPageClient({
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
-        <p className="text-sm text-muted-foreground">Review and approve submitted work</p>
+        <p className="text-sm text-muted">Review and approve submitted work</p>
       </div>
 
       <Card>
         <CardHeader><CardTitle>Pending Approval ({pending.length})</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {pending.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No pending approvals</p>
+            <p className="text-sm text-muted">No pending approvals</p>
           ) : (
             pending.map((a) => (
               <div key={a.id} className="rounded-md border p-4">
                 <p className="font-medium">{a.requests?.title ?? a.tasks?.title ?? "Approval Request"}</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted">
                   {a.requests?.requesting_unit && `From: ${a.requests.requesting_unit}`}
                 </p>
                 {a.submitted_link && (
@@ -80,14 +80,14 @@ export function ApprovalsPageClient({
                 )}
                 <div className="mt-3 flex gap-3">
                   <input
-                    className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="flex-1 rounded-md border border bg-canvas px-3 py-2 text-sm"
                     placeholder="Feedback (optional)"
                     value={feedback[a.id] ?? ""}
                     onChange={(e) => setFeedback((prev) => ({ ...prev, [a.id]: e.target.value }))}
                   />
                   <Button size="sm" onClick={() => handleAction(a.id, "approved")}>Approve</Button>
-                  <Button size="sm" variant="outline" onClick={() => handleAction(a.id, "changes_requested")}>Request Changes</Button>
-                  <Button size="sm" variant="destructive" onClick={() => handleAction(a.id, "rejected")}>Reject</Button>
+                  <Button size="sm" variant="secondary" onClick={() => handleAction(a.id, "changes_requested")}>Request Changes</Button>
+                  <Button size="sm" variant="danger" onClick={() => handleAction(a.id, "rejected")}>Reject</Button>
                 </div>
               </div>
             ))
@@ -99,7 +99,7 @@ export function ApprovalsPageClient({
         <CardHeader><CardTitle>Approval History</CardTitle></CardHeader>
         <CardContent>
           {history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No history yet</p>
+            <p className="text-sm text-muted">No history yet</p>
           ) : (
             <div className="space-y-2">
               {history.map((a) => (

@@ -98,7 +98,7 @@ export function CalendarPageClient({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
-          <p className="text-sm text-muted-foreground">Services, events, rehearsals, and deadlines</p>
+          <p className="text-sm text-muted">Services, events, rehearsals, and deadlines</p>
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           {showForm ? "Cancel" : "Create Event"}
@@ -121,7 +121,7 @@ export function CalendarPageClient({
                   <Label htmlFor="eventType">Event Type</Label>
                   <select
                     id="eventType"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                     value={form.eventType}
                     onChange={(e) => setForm({ ...form, eventType: e.target.value })}
                   >
@@ -147,7 +147,7 @@ export function CalendarPageClient({
                 <Label htmlFor="description">Description</Label>
                 <textarea
                   id="description"
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="flex min-h-[80px] w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                 />
@@ -181,16 +181,16 @@ export function CalendarPageClient({
 
       <div className="space-y-3">
         {events.length === 0 ? (
-          <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">
+          <div className="rounded-lg border bg-surface p-8 text-center text-muted">
             No events yet. Create your first event to get started.
           </div>
         ) : (
           events.map((event) => (
-            <div key={event.id} className="rounded-lg border bg-card p-4">
+            <div key={event.id} className="rounded-lg border bg-surface p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-semibold">{event.title}</h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted">
                     {new Date(event.start_time).toLocaleDateString("en-US", {
                       weekday: "long",
                       month: "long",

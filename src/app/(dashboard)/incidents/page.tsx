@@ -8,7 +8,7 @@ export default async function IncidentsPage() {
 
   const { data: incidents } = await supabase
     .from("incidents")
-    .select("*, events(title), sub_teams(name), users!incidents_reported_by_fkey(full_name)")
+    .select("*, events(title), sub_teams(name), reported_by:users(full_name)")
     .order("created_at", { ascending: false })
 
   const { data: events } = await supabase

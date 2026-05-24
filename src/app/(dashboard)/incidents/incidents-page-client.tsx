@@ -17,7 +17,7 @@ interface Incident {
   resolution_notes: string | null
   events: { title: string } | null
   sub_teams: { name: string } | null
-  users: { full_name: string } | null
+  reported_by: { full_name: string } | null
   created_at: string
 }
 
@@ -89,7 +89,7 @@ export function IncidentsPageClient({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Incidents</h1>
-          <p className="text-sm text-muted-foreground">Capture and resolve operational issues</p>
+          <p className="text-sm text-muted">Capture and resolve operational issues</p>
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           {showForm ? "Cancel" : "Report Incident"}
@@ -103,7 +103,7 @@ export function IncidentsPageClient({
             <form onSubmit={submitIncident} className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Incident Type</Label>
-                <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.incidentType} onChange={(e) => setForm({ ...form, incidentType: e.target.value })}>
+                <select className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm" value={form.incidentType} onChange={(e) => setForm({ ...form, incidentType: e.target.value })}>
                   <option value="">Select...</option>
                   <option value="sound_issue">Sound Issue</option>
                   <option value="projection_issue">Projection Issue</option>
@@ -118,7 +118,7 @@ export function IncidentsPageClient({
               </div>
               <div className="space-y-2">
                 <Label>Severity</Label>
-                <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
+                <select className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
@@ -127,21 +127,21 @@ export function IncidentsPageClient({
               </div>
               <div className="space-y-2">
                 <Label>Related Event (optional)</Label>
-                <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.eventId} onChange={(e) => setForm({ ...form, eventId: e.target.value })}>
+                <select className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm" value={form.eventId} onChange={(e) => setForm({ ...form, eventId: e.target.value })}>
                   <option value="">None</option>
                   {events.map((ev) => (<option key={ev.id} value={ev.id}>{ev.title}</option>))}
                 </select>
               </div>
               <div className="space-y-2">
                 <Label>Related Sub-Team (optional)</Label>
-                <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.subTeamId} onChange={(e) => setForm({ ...form, subTeamId: e.target.value })}>
+                <select className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm" value={form.subTeamId} onChange={(e) => setForm({ ...form, subTeamId: e.target.value })}>
                   <option value="">None</option>
                   {subTeams.map((st) => (<option key={st.id} value={st.id}>{st.name}</option>))}
                 </select>
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Description</Label>
-                <textarea className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
+                <textarea className="flex min-h-[80px] w-full rounded-md border border bg-canvas px-3 py-2 text-sm" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
               </div>
               <div className="md:col-span-2">
                 <Button type="submit" disabled={loading}>Report Incident</Button>
@@ -158,8 +158,8 @@ export function IncidentsPageClient({
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base capitalize">{inc.incident_type.replace(/_/g, " ")}</CardTitle>
-                  <p className="text-xs text-muted-foreground">
-                    {inc.users?.full_name} · {inc.sub_teams?.name} · {inc.events?.title}
+                  <p className="text-xs text-muted">
+                    {inc.reported_by?.full_name} · {inc.sub_teams?.name} · {inc.events?.title}
                     · {new Date(inc.created_at).toLocaleDateString()}
                   </p>
                 </div>
@@ -176,19 +176,19 @@ export function IncidentsPageClient({
               <p className="text-sm">{inc.description}</p>
               {inc.status === "open" && (
                 <div className="mt-3 flex gap-2">
-                  <input className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Resolution notes..." value={resolveNotes[inc.id] ?? ""} onChange={(e) => setResolveNotes((prev) => ({ ...prev, [inc.id]: e.target.value }))} />
+                  <input className="flex-1 rounded-md border border bg-canvas px-3 py-2 text-sm" placeholder="Resolution notes..." value={resolveNotes[inc.id] ?? ""} onChange={(e) => setResolveNotes((prev) => ({ ...prev, [inc.id]: e.target.value }))} />
                   <Button size="sm" onClick={() => resolve(inc.id, resolveNotes[inc.id] ?? "")}>Resolve</Button>
                 </div>
               )}
               {inc.resolution_notes && (
-                <p className="mt-2 text-sm text-muted-foreground">✅ {inc.resolution_notes}</p>
+                <p className="mt-2 text-sm text-muted">✅ {inc.resolution_notes}</p>
               )}
-              <p className="mt-1 text-xs capitalize text-muted-foreground">Status: {inc.status}</p>
+              <p className="mt-1 text-xs capitalize text-muted">Status: {inc.status}</p>
             </CardContent>
           </Card>
         ))}
         {incidents.length === 0 && (
-          <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">No incidents reported</div>
+          <div className="rounded-lg border bg-surface p-8 text-center text-muted">No incidents reported</div>
         )}
       </div>
     </div>

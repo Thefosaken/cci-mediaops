@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   BarChart3,
   Settings,
+  X,
 } from "lucide-react"
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -32,28 +33,37 @@ const iconMap: Record<string, React.ReactNode> = {
   Settings: <Settings className="h-4 w-4" />,
 }
 
-export function Sidebar() {
+export function Sidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname()
 
   return (
-    <aside className="flex h-full w-64 flex-col border-r bg-background">
-      <div className="flex h-14 items-center border-b px-6">
-        <Link href="/dashboard" className="font-semibold">
-          CCI MediaOps
+    <aside className="flex h-full w-64 flex-col border-r border-border bg-surface">
+      <div className="flex h-16 items-center justify-between border-b border-border px-5">
+        <Link href="/dashboard" className="flex items-center gap-2.5" onClick={onClose}>
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-white text-xs font-bold">
+            C
+          </div>
+          <span className="text-[15px] font-semibold text-foreground">CCI MediaOps</span>
         </Link>
+        {onClose && (
+          <button onClick={onClose} className="rounded-md p-1.5 text-muted hover:text-foreground hover:bg-surface-subtle">
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
-      <nav className="flex-1 space-y-1 p-4">
+      <nav className="flex-1 space-y-0.5 p-3">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
           return (
             <Link
               key={item.href}
               href={item.href}
+              onClick={onClose}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-150",
                 isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  ? "bg-primary text-white font-medium"
+                  : "text-muted hover:text-foreground hover:bg-surface-subtle"
               )}
             >
               {iconMap[item.icon]}
@@ -62,8 +72,8 @@ export function Sidebar() {
           )
         })}
       </nav>
-      <div className="border-t p-4">
-        <p className="text-xs text-muted-foreground">CCI MediaOps v0.1</p>
+      <div className="border-t border-border p-4">
+        <p className="text-xs text-faint">CCI MediaOps v0.1</p>
       </div>
     </aside>
   )

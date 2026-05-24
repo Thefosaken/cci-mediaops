@@ -25,7 +25,7 @@ export default async function SchedulingPage() {
 
   const { data: slots } = await supabase
     .from("schedule_slots")
-    .select("*, users!schedule_slots_assigned_user_id_fkey(full_name)")
+    .select("*, assigned_user:users!assigned_user_id(full_name)")
     .in("event_id", (events ?? []).map((e) => e.id))
 
   return (

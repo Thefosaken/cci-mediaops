@@ -21,7 +21,7 @@ export default async function ReportsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
-        <p className="text-sm text-muted-foreground">Operational health overview</p>
+        <p className="text-sm text-muted">Operational health overview</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -35,7 +35,7 @@ export default async function ReportsPage() {
         <Card>
           <CardHeader><CardTitle>Service Readiness</CardTitle></CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted">
               {completedEvents} of {totalEvents} events completed
             </p>
             <div className="mt-2 h-2 w-full rounded-full bg-secondary">
@@ -50,10 +50,10 @@ export default async function ReportsPage() {
         <Card>
           <CardHeader><CardTitle>Request Summary</CardTitle></CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted">
               {pendingReqs.count} requests need attention
             </p>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-sm text-muted mt-1">
               {unconfirmedSlots.count} schedule slots unconfirmed
             </p>
           </CardContent>
@@ -65,8 +65,8 @@ export default async function ReportsPage() {
 
 function ReportCard({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-lg border bg-card p-6 text-card-foreground shadow-sm">
-      <p className="text-sm font-medium text-muted-foreground">{title}</p>
+    <div className="rounded-lg border bg-surface p-6 text-foreground shadow-sm">
+      <p className="text-sm font-medium text-muted">{title}</p>
       <p className="mt-2 text-3xl font-bold">{value}</p>
     </div>
   )

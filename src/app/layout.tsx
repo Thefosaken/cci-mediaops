@@ -1,22 +1,18 @@
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
 import "./globals.css"
-
-const inter = Inter({ subsets: ["latin"] })
+import { ThemeProvider } from "@/lib/theme/theme-context"
 
 export const metadata: Metadata = {
   title: "CCI MediaOps",
   description: "Celebration Church International Media Operations System",
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className={`${inter.className} min-h-full`}>{children}</body>
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      <body className="min-h-full font-sans">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   )
 }

@@ -34,7 +34,7 @@ export default async function SettingsPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">System configuration</p>
+        <p className="text-sm text-muted">System configuration</p>
       </div>
 
       {isAdmin && (
@@ -44,10 +44,10 @@ export default async function SettingsPage() {
         </>
       )}
 
-      <div className="rounded-lg border bg-card p-6">
+      <div className="rounded-lg border bg-surface p-6">
         <h2 className="font-semibold mb-4">Active Team Members</h2>
         {(!activeUsers || activeUsers.length === 0) ? (
-          <p className="text-sm text-muted-foreground">No active members</p>
+          <p className="text-sm text-muted">No active members</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -63,7 +63,7 @@ export default async function SettingsPage() {
                 {activeUsers.map((u) => (
                   <tr key={u.id} className="border-b last:border-0">
                     <td className="py-3">{u.full_name}</td>
-                    <td className="py-3 text-muted-foreground">{u.email}</td>
+                    <td className="py-3 text-muted">{u.email}</td>
                     <td className="py-3 capitalize">
                       {u.campus_memberships?.[0]?.role_id
                         ? roles?.find((r) => r.id === u.campus_memberships[0].role_id)?.name?.replace(/_/g, " ")

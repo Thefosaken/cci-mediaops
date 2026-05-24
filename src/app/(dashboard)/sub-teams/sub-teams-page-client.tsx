@@ -104,7 +104,7 @@ export function SubTeamsPageClient({
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Sub-Teams</h1>
-        <p className="text-sm text-muted-foreground">Manage each media sub-team</p>
+        <p className="text-sm text-muted">Manage each media sub-team</p>
       </div>
 
       <div className="flex gap-2 flex-wrap">
@@ -131,18 +131,18 @@ export function SubTeamsPageClient({
             </CardHeader>
             <CardContent className="space-y-3">
               {currentTeam.sub_team_memberships.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No members yet</p>
+                <p className="text-sm text-muted">No members yet</p>
               ) : (
                 currentTeam.sub_team_memberships.map((m, i) => (
                   <div key={i} className="text-sm">
                     <p className="font-medium">{m.users?.full_name}</p>
-                    <p className="text-muted-foreground">{m.users?.email}</p>
+                    <p className="text-muted">{m.users?.email}</p>
                   </div>
                 ))
               )}
               <div className="pt-3 border-t">
                 <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                   value=""
                   onChange={(e) => {
                     if (e.target.value) {
@@ -175,7 +175,7 @@ export function SubTeamsPageClient({
             <CardContent className="space-y-3">
               <div className="flex gap-2">
                 <input
-                  className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="flex-1 rounded-md border border bg-canvas px-3 py-2 text-sm"
                   placeholder="New task..."
                   value={newTaskTitle}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
@@ -185,7 +185,7 @@ export function SubTeamsPageClient({
                 </Button>
               </div>
               <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                 value={newTaskAssignee}
                 onChange={(e) => setNewTaskAssignee(e.target.value)}
               >
@@ -197,7 +197,7 @@ export function SubTeamsPageClient({
                 ))}
               </select>
               {currentTeam.tasks.length === 0 ? (
-                <p className="text-sm text-muted-foreground pt-2">No tasks yet</p>
+                <p className="text-sm text-muted pt-2">No tasks yet</p>
               ) : (
                 <div className="space-y-2 pt-2">
                   {currentTeam.tasks.map((task) => (
@@ -207,7 +207,7 @@ export function SubTeamsPageClient({
                     >
                       <p className="text-sm">{task.title}</p>
                       <select
-                        className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                        className="rounded-md border border bg-canvas px-2 py-1 text-xs"
                         value={task.status}
                         onChange={(e) =>
                           updateTaskStatus(task.id, e.target.value)
@@ -232,13 +232,13 @@ export function SubTeamsPageClient({
             </CardHeader>
             <CardContent>
               {currentRequests?.requests.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No requests assigned</p>
+                <p className="text-sm text-muted">No requests assigned</p>
               ) : (
                 <div className="space-y-2">
                   {currentRequests?.requests.map((r: any) => (
                     <div key={r.id} className="flex items-center justify-between rounded-md border p-3 text-sm">
                       <span className="font-medium">{r.requests?.title}</span>
-                      <span className="text-muted-foreground capitalize">
+                      <span className="text-muted capitalize">
                         {r.requests?.status.replace(/_/g, " ")}
                       </span>
                     </div>

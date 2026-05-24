@@ -46,7 +46,7 @@ export function SubTeamsManager({ subTeams }: { subTeams: SubTeam[] }) {
   }
 
   return (
-    <div className="rounded-lg border bg-card p-6">
+    <div className="rounded-lg border bg-surface p-6">
       <h2 className="font-semibold mb-4">Sub-Teams</h2>
 
       <div className="flex gap-3 mb-6">
@@ -71,12 +71,12 @@ export function SubTeamsManager({ subTeams }: { subTeams: SubTeam[] }) {
             <div>
               <p className="text-sm font-medium">{team.name}</p>
               {team.description && (
-                <p className="text-xs text-muted-foreground">{team.description}</p>
+                <p className="text-xs text-muted">{team.description}</p>
               )}
             </div>
             <Button
               size="sm"
-              variant={team.status === "active" ? "outline" : "ghost"}
+              variant={team.status === "active" ? "secondary" : "ghost"}
               onClick={() => toggleStatus(team.id, team.status)}
             >
               {team.status === "active" ? "Active" : "Inactive"}

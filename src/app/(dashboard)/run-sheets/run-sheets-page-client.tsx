@@ -125,10 +125,10 @@ export function RunSheetsPageClient({
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">🔴 Live: {activeRunSheet.title}</h1>
-            <p className="text-sm text-muted-foreground">{activeRunSheet.events?.title}</p>
+            <p className="text-sm text-muted">{activeRunSheet.events?.title}</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => { setLiveMode(false); setActiveSheet(null) }}>
+            <Button variant="secondary" onClick={() => { setLiveMode(false); setActiveSheet(null) }}>
               Exit Live Mode
             </Button>
           </div>
@@ -141,20 +141,20 @@ export function RunSheetsPageClient({
           <CardContent className="space-y-6">
             <div className="text-center">
               <p className="text-3xl font-bold">{seg?.title}</p>
-              <p className="text-muted-foreground">
+              <p className="text-muted">
                 {currentSegment + 1} of {segments.length}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-4 text-sm">
-              {seg?.projection_cue && <div className="rounded-md bg-muted p-3"><strong>Projection:</strong> {seg.projection_cue}</div>}
-              {seg?.sound_cue && <div className="rounded-md bg-muted p-3"><strong>Sound:</strong> {seg.sound_cue}</div>}
-              {seg?.lighting_cue && <div className="rounded-md bg-muted p-3"><strong>Lighting:</strong> {seg.lighting_cue}</div>}
-              {seg?.camera_cue && <div className="rounded-md bg-muted p-3"><strong>Camera:</strong> {seg.camera_cue}</div>}
-              {seg?.social_media_cue && <div className="rounded-md bg-muted p-3"><strong>Social:</strong> {seg.social_media_cue}</div>}
+              {seg?.projection_cue && <div className="rounded-md bg-surface-subtle p-3"><strong>Projection:</strong> {seg.projection_cue}</div>}
+              {seg?.sound_cue && <div className="rounded-md bg-surface-subtle p-3"><strong>Sound:</strong> {seg.sound_cue}</div>}
+              {seg?.lighting_cue && <div className="rounded-md bg-surface-subtle p-3"><strong>Lighting:</strong> {seg.lighting_cue}</div>}
+              {seg?.camera_cue && <div className="rounded-md bg-surface-subtle p-3"><strong>Camera:</strong> {seg.camera_cue}</div>}
+              {seg?.social_media_cue && <div className="rounded-md bg-surface-subtle p-3"><strong>Social:</strong> {seg.social_media_cue}</div>}
             </div>
             <div className="flex justify-center gap-4">
               <Button
-                variant="outline"
+                variant="secondary"
                 disabled={currentSegment === 0}
                 onClick={() => setCurrentSegment((p) => Math.max(0, p - 1))}
               >
@@ -181,7 +181,7 @@ export function RunSheetsPageClient({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Run Sheets</h1>
-          <p className="text-sm text-muted-foreground">Create and use live service run sheets</p>
+          <p className="text-sm text-muted">Create and use live service run sheets</p>
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           {showForm ? "Cancel" : "New Run Sheet"}
@@ -194,7 +194,7 @@ export function RunSheetsPageClient({
           <CardContent className="flex gap-3">
             <Input placeholder="Run sheet title" value={newSheetTitle} onChange={(e) => setNewSheetTitle(e.target.value)} />
             <select
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className="rounded-md border border bg-canvas px-3 py-2 text-sm"
               value={newSheetEvent}
               onChange={(e) => setNewSheetEvent(e.target.value)}
             >
@@ -215,10 +215,10 @@ export function RunSheetsPageClient({
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>{rs.title}</CardTitle>
-                  <p className="text-sm text-muted-foreground">{rs.events?.title}</p>
+                  <p className="text-sm text-muted">{rs.events?.title}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setActiveSheet(rs.id)}>
+                  <Button size="sm" variant="secondary" onClick={() => setActiveSheet(rs.id)}>
                     Edit Cues
                   </Button>
                   <Button size="sm" onClick={() => toggleLive(rs.id, "live")}>
@@ -238,11 +238,11 @@ export function RunSheetsPageClient({
                           {seg.sequence_order + 1}. {seg.title}
                         </p>
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <input className="rounded border border-input bg-background px-2 py-1" placeholder="Projection cue" value={seg.projection_cue ?? ""} onChange={(e) => updateCue(seg.id, "projection_cue", e.target.value)} />
-                          <input className="rounded border border-input bg-background px-2 py-1" placeholder="Sound cue" value={seg.sound_cue ?? ""} onChange={(e) => updateCue(seg.id, "sound_cue", e.target.value)} />
-                          <input className="rounded border border-input bg-background px-2 py-1" placeholder="Lighting cue" value={seg.lighting_cue ?? ""} onChange={(e) => updateCue(seg.id, "lighting_cue", e.target.value)} />
-                          <input className="rounded border border-input bg-background px-2 py-1" placeholder="Camera cue" value={seg.camera_cue ?? ""} onChange={(e) => updateCue(seg.id, "camera_cue", e.target.value)} />
-                          <input className="rounded border border-input bg-background px-2 py-1 md:col-span-2" placeholder="Social media cue" value={seg.social_media_cue ?? ""} onChange={(e) => updateCue(seg.id, "social_media_cue", e.target.value)} />
+                          <input className="rounded border border bg-canvas px-2 py-1" placeholder="Projection cue" value={seg.projection_cue ?? ""} onChange={(e) => updateCue(seg.id, "projection_cue", e.target.value)} />
+                          <input className="rounded border border bg-canvas px-2 py-1" placeholder="Sound cue" value={seg.sound_cue ?? ""} onChange={(e) => updateCue(seg.id, "sound_cue", e.target.value)} />
+                          <input className="rounded border border bg-canvas px-2 py-1" placeholder="Lighting cue" value={seg.lighting_cue ?? ""} onChange={(e) => updateCue(seg.id, "lighting_cue", e.target.value)} />
+                          <input className="rounded border border bg-canvas px-2 py-1" placeholder="Camera cue" value={seg.camera_cue ?? ""} onChange={(e) => updateCue(seg.id, "camera_cue", e.target.value)} />
+                          <input className="rounded border border bg-canvas px-2 py-1 md:col-span-2" placeholder="Social media cue" value={seg.social_media_cue ?? ""} onChange={(e) => updateCue(seg.id, "social_media_cue", e.target.value)} />
                         </div>
                       </div>
                     ))}
@@ -252,7 +252,7 @@ export function RunSheetsPageClient({
           </Card>
         ))}
         {runSheets.length === 0 && (
-          <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">
+          <div className="rounded-lg border bg-surface p-8 text-center text-muted">
             No run sheets yet.
           </div>
         )}

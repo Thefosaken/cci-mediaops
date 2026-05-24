@@ -16,7 +16,7 @@ interface ScheduleSlot {
   call_time: string | null
   confirmation_status: string
   attendance_status: string | null
-  users: { full_name: string } | null
+  assigned_user: { full_name: string } | null
 }
 
 export function SchedulingPageClient({
@@ -69,12 +69,12 @@ export function SchedulingPageClient({
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Scheduling</h1>
-        <p className="text-sm text-muted-foreground">Assign people to service and event roles</p>
+        <p className="text-sm text-muted">Assign people to service and event roles</p>
       </div>
 
       <div className="flex gap-4 flex-wrap">
         <select
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+          className="rounded-md border border bg-canvas px-3 py-2 text-sm"
           value={selectedEvent}
           onChange={(e) => setSelectedEvent(e.target.value)}
         >
@@ -87,7 +87,7 @@ export function SchedulingPageClient({
         </select>
 
         <select
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+          className="rounded-md border border bg-canvas px-3 py-2 text-sm"
           value={selectedSubTeam}
           onChange={(e) => setSelectedSubTeam(e.target.value)}
         >
@@ -106,7 +106,7 @@ export function SchedulingPageClient({
           <CardContent>
             <div className="flex gap-3">
               <select
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="rounded-md border border bg-canvas px-3 py-2 text-sm"
                 value={selectedSubTeam}
                 onChange={(e) => setSelectedSubTeam(e.target.value)}
               >
@@ -116,7 +116,7 @@ export function SchedulingPageClient({
                 ))}
               </select>
               <input
-                className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="flex-1 rounded-md border border bg-canvas px-3 py-2 text-sm"
                 placeholder="Role (e.g. FOH Engineer, Lyrics Operator)"
                 value={newRole}
                 onChange={(e) => setNewRole(e.target.value)}
@@ -129,23 +129,23 @@ export function SchedulingPageClient({
 
       <div className="space-y-2">
         {filteredSlots.length === 0 ? (
-          <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">
+          <div className="rounded-lg border bg-surface p-8 text-center text-muted">
             No schedule slots. Add a role slot above.
           </div>
         ) : (
           filteredSlots.map((slot) => (
-            <div key={slot.id} className="rounded-lg border bg-card p-4">
+            <div key={slot.id} className="rounded-lg border bg-surface p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium">{slot.role_title}</p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted">
                     {subTeams.find((st) => st.id === slot.sub_team_id)?.name}
-                    {slot.users && ` · ${slot.users.full_name}`}
+                    {slot.assigned_user && ` · ${slot.assigned_user.full_name}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
                   <select
-                    className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                    className="rounded-md border border bg-canvas px-2 py-1 text-xs"
                     value={slot.assigned_user_id ?? ""}
                     onChange={(e) => assignUser(slot.id, e.target.value)}
                   >
@@ -155,7 +155,7 @@ export function SchedulingPageClient({
                     ))}
                   </select>
                   <select
-                    className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                    className="rounded-md border border bg-canvas px-2 py-1 text-xs"
                     value={slot.confirmation_status}
                     onChange={(e) => confirmSlot(slot.id, e.target.value)}
                   >

@@ -69,18 +69,18 @@ export function PendingUsersList({
   if (users.length === 0) return null
 
   return (
-    <div className="rounded-lg border bg-card p-6">
+    <div className="rounded-lg border bg-surface p-6">
       <h2 className="font-semibold mb-4">Pending Approvals ({users.length})</h2>
       <div className="space-y-4">
         {users.map((user) => (
           <div key={user.id} className="flex items-center justify-between rounded-md border p-4">
             <div>
               <p className="font-medium text-sm">{user.full_name}</p>
-              <p className="text-sm text-muted-foreground">{user.email}</p>
+              <p className="text-sm text-muted">{user.email}</p>
             </div>
             <div className="flex items-center gap-3">
               <select
-                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                className="rounded-md border border bg-canvas px-3 py-1.5 text-sm"
                 value={selectedRole[user.id] ?? ""}
                 onChange={(e) =>
                   setSelectedRole((prev) => ({ ...prev, [user.id]: e.target.value }))
@@ -96,7 +96,7 @@ export function PendingUsersList({
               <Button size="sm" onClick={() => approveUser(user.id)}>
                 Approve
               </Button>
-              <Button size="sm" variant="outline" onClick={() => rejectUser(user.id)}>
+              <Button size="sm" variant="secondary" onClick={() => rejectUser(user.id)}>
                 Reject
               </Button>
             </div>

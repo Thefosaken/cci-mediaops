@@ -97,7 +97,7 @@ export function RequestsPageClient({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Requests</h1>
-          <p className="text-sm text-muted-foreground">Submit, route, and manage media requests</p>
+          <p className="text-sm text-muted">Submit, route, and manage media requests</p>
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           {showForm ? "Cancel" : "New Request"}
@@ -122,7 +122,7 @@ export function RequestsPageClient({
                   <Label htmlFor="reqEvent">Link to Event (optional)</Label>
                   <select
                     id="reqEvent"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                     value={form.eventId}
                     onChange={(e) => setForm({ ...form, eventId: e.target.value })}
                   >
@@ -136,7 +136,7 @@ export function RequestsPageClient({
                   <Label htmlFor="reqPriority">Priority</Label>
                   <select
                     id="reqPriority"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                     value={form.priority}
                     onChange={(e) => setForm({ ...form, priority: e.target.value })}
                   >
@@ -173,7 +173,7 @@ export function RequestsPageClient({
                 <Label htmlFor="reqDesc">Description</Label>
                 <textarea
                   id="reqDesc"
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="flex min-h-[80px] w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                 />
@@ -182,7 +182,7 @@ export function RequestsPageClient({
                 <Label htmlFor="reqOutput">Desired Output</Label>
                 <textarea
                   id="reqOutput"
-                  className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="flex min-h-[60px] w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                   value={form.desiredOutput}
                   onChange={(e) => setForm({ ...form, desiredOutput: e.target.value })}
                 />
@@ -201,16 +201,16 @@ export function RequestsPageClient({
 
       <div className="space-y-3">
         {requests.length === 0 ? (
-          <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">
+          <div className="rounded-lg border bg-surface p-8 text-center text-muted">
             No requests yet.
           </div>
         ) : (
           requests.map((req) => (
-            <div key={req.id} className="rounded-lg border bg-card p-4">
+            <div key={req.id} className="rounded-lg border bg-surface p-4">
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
                   <h3 className="font-semibold">{req.title}</h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted">
                     {req.requesting_unit} · {req.priority} priority
                   </p>
                   {req.request_sub_teams.length > 0 && (

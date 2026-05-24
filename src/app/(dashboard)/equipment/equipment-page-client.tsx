@@ -75,7 +75,7 @@ export function EquipmentPageClient({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Equipment</h1>
-          <p className="text-sm text-muted-foreground">Track equipment per sub-team</p>
+          <p className="text-sm text-muted">Track equipment per sub-team</p>
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           {showForm ? "Cancel" : "Add Item"}
@@ -94,7 +94,7 @@ export function EquipmentPageClient({
               <div className="space-y-2">
                 <Label>Sub-Team</Label>
                 <select
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                   value={form.subTeamId}
                   onChange={(e) => setForm({ ...form, subTeamId: e.target.value })}
                   required
@@ -116,7 +116,7 @@ export function EquipmentPageClient({
               <div className="space-y-2">
                 <Label>Condition</Label>
                 <select
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="flex h-9 w-full rounded-md border border bg-canvas px-3 py-2 text-sm"
                   value={form.conditionStatus}
                   onChange={(e) => setForm({ ...form, conditionStatus: e.target.value })}
                 >
@@ -158,11 +158,11 @@ export function EquipmentPageClient({
 
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         {filtered.map((item) => (
-          <div key={item.id} className="rounded-lg border bg-card p-4">
+          <div key={item.id} className="rounded-lg border bg-surface p-4">
             <div className="flex items-start justify-between">
               <div>
                 <p className="font-medium">{item.name}</p>
-                <p className="text-xs text-muted-foreground">{item.sub_teams?.name}</p>
+                <p className="text-xs text-muted">{item.sub_teams?.name}</p>
               </div>
               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                 item.condition_status === "good" ? "bg-green-100 text-green-800" :
@@ -172,14 +172,14 @@ export function EquipmentPageClient({
                 {item.condition_status.replace(/_/g, " ")}
               </span>
             </div>
-            {item.category && <p className="mt-1 text-xs text-muted-foreground">{item.category}</p>}
-            {item.asset_tag && <p className="text-xs text-muted-foreground">Tag: {item.asset_tag}</p>}
-            {item.storage_location && <p className="text-xs text-muted-foreground">📍 {item.storage_location}</p>}
+            {item.category && <p className="mt-1 text-xs text-muted">{item.category}</p>}
+            {item.asset_tag && <p className="text-xs text-muted">Tag: {item.asset_tag}</p>}
+            {item.storage_location && <p className="text-xs text-muted">📍 {item.storage_location}</p>}
             <p className="mt-2 text-xs capitalize">Status: {item.availability_status.replace(/_/g, " ")}</p>
           </div>
         ))}
         {filtered.length === 0 && (
-          <div className="col-span-full rounded-lg border bg-card p-8 text-center text-muted-foreground">
+          <div className="col-span-full rounded-lg border bg-surface p-8 text-center text-muted">
             No equipment items.
           </div>
         )}
