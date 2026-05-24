@@ -76,9 +76,9 @@ export function UserMenu({ name, email, roleLabel, compact }: UserMenuProps) {
         <div
           role="menu"
           className={cn(
-            "absolute right-0 bottom-full mb-2 w-[260px] z-50",
+            "absolute right-0 top-full mt-2 w-[260px] z-50",
             "rounded-xl border border-border bg-surface-raised shadow-lg",
-            "animate-scale-in origin-bottom-right overflow-hidden"
+            "animate-scale-in origin-top-right overflow-hidden"
           )}
         >
           {/* Identity */}

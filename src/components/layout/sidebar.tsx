@@ -8,11 +8,12 @@ import { NAV_ITEMS } from "@/constants"
 import {
   LayoutDashboard, Calendar, Inbox, CalendarCheck, ScrollText,
   Users, Wrench, ClipboardCheck, AlertTriangle, BarChart3, Settings,
-  X, Search, Plus, ChevronLeft, ChevronRight,
+  X, Search, Plus, ChevronLeft, ChevronRight, LogOut,
 } from "lucide-react"
 import { Logo } from "@/components/ui/logo"
 import { Kbd } from "@/components/ui/kbd"
 import { useSidebarCollapsed } from "@/lib/hooks/use-sidebar-collapsed"
+import { createClient } from "@/lib/supabase/client"
 import type { ShellCounts } from "@/server/queries/shell"
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -46,6 +47,12 @@ interface SidebarProps {
 export function Sidebar({ onClose, onCommandOpen, counts, campusName }: SidebarProps) {
   const pathname = usePathname()
   const { collapsed, toggle } = useSidebarCollapsed()
+
+  async function signOut() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    window.location.href = "/login"
+  }
 
   const primaryItems = NAV_ITEMS.filter((i) => PRIMARY_NAV.includes(i.href))
   const manageItems = NAV_ITEMS.filter((i) => MANAGE_NAV.includes(i.href))
@@ -206,12 +213,28 @@ export function Sidebar({ onClose, onCommandOpen, counts, campusName }: SidebarP
         </div>
       </nav>
 
-      {/* Footer: new request shortcut + collapse */}
-      <div className={cn("border-t border-border shrink-0", collapsed ? "px-2 py-2" : "p-2")}>
+      {/* Footer: new request shortcut + sign out + collapse */}
+      <div className={cn("border-t border-border shrink-0", collapsed ? "px-2 py-2 space-y-1" : "p-2 space-y-1")}>
+        {/* Sign out */}
+        <button
+          type="button"
+          onClick={signOut}
+          title={collapsed ? "Sign out" : undefined}
+          aria-label="Sign out"
+          className={cn(
+            "flex w-full items-center rounded-md h-8 text-muted",
+            "hover:text-foreground hover:bg-surface-subtle transition-colors",
+            collapsed ? "justify-center" : "px-2 gap-2"
+          )}
+        >
+          <LogOut className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
+          {!collapsed && <span className="text-[12.5px]">Sign out</span>}
+        </button>
+
         {!collapsed && (
           <Link
             href="/requests?new=1"
-            className="mb-1.5 flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2 h-8 text-[12.5px] text-foreground hover:bg-surface-hover hover:border-border-strong transition-colors"
+            className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2 h-8 text-[12.5px] text-foreground hover:bg-surface-hover hover:border-border-strong transition-colors"
           >
             <Plus className="h-3.5 w-3.5 text-faint" aria-hidden="true" />
             <span className="flex-1 text-left">New request</span>
