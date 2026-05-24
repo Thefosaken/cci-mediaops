@@ -587,7 +587,7 @@ function UsersSection({
       />
 
 
-      <div className="rounded-xl border border-border bg-surface overflow-hidden">
+      <div className="rounded-xl border border-border bg-surface">
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border">
           <div>
             <h3 className="text-[13px] font-semibold text-foreground">Active members</h3>
