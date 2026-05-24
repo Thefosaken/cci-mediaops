@@ -52,18 +52,22 @@ export function Modal({
     }
   }, [open])
 
-  // Escape to close + initial focus
+  // Focus the panel ONLY on the open → true transition.
+  // (Don't re-focus on every render or we steal focus from inputs.)
   React.useEffect(() => {
-    if (!open) return
+    if (open) panelRef.current?.focus()
+  }, [open])
+
+  // Escape to close — separate effect so onClose changes don't re-focus.
+  React.useEffect(() => {
+    if (!open || blocking) return
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && !blocking) {
+      if (e.key === "Escape") {
         e.preventDefault()
         onClose()
       }
     }
     document.addEventListener("keydown", onKeyDown)
-    // Move focus into the panel
-    panelRef.current?.focus()
     return () => document.removeEventListener("keydown", onKeyDown)
   }, [open, onClose, blocking])
 

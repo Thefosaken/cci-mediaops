@@ -46,7 +46,14 @@ export function SidePanel({
     }
   }, [open])
 
-  // Escape to close + focus mgmt
+  // Focus the panel ONLY on the open → true transition.
+  // (Don't re-focus on every render or we steal focus from inputs inside.)
+  React.useEffect(() => {
+    if (open) panelRef.current?.focus()
+  }, [open])
+
+  // Escape to close — separate effect so onClose identity changes
+  // don't trigger a re-focus.
   React.useEffect(() => {
     if (!open) return
     function onKeyDown(e: KeyboardEvent) {
@@ -56,8 +63,6 @@ export function SidePanel({
       }
     }
     document.addEventListener("keydown", onKeyDown)
-    // Focus panel on open
-    panelRef.current?.focus()
     return () => document.removeEventListener("keydown", onKeyDown)
   }, [open, onClose])
 
