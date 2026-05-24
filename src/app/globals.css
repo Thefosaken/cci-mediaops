@@ -1,11 +1,7 @@
 @import "tailwindcss";
-@import "@fontsource/geist-sans/400.css";
-@import "@fontsource/geist-sans/500.css";
-@import "@fontsource/geist-sans/600.css";
-@import "@fontsource/geist-sans/700.css";
 
 @theme inline {
-  --font-sans: "Geist Sans", "Inter", system-ui, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
 
   --color-canvas: var(--bg);
   --color-surface: var(--surface);
