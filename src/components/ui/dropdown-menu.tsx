@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils/cn"
 
 interface DropdownMenuProps {
@@ -14,13 +15,27 @@ const DropdownContext = React.createContext<{ close: () => void } | null>(null)
 
 export function DropdownMenu({ trigger, children, align = "end", className }: DropdownMenuProps) {
   const [open, setOpen] = React.useState(false)
+  const [mounted, setMounted] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const dropdownRef = React.useRef<HTMLDivElement>(null)
+  const [dropdownPos, setDropdownPos] = React.useState<{
+    top: number
+    left: number
+    width: number
+    openUpward: boolean
+  } | null>(null)
   const close = React.useCallback(() => setOpen(false), [])
 
+  React.useEffect(() => { setMounted(true) }, [])
+
+  // Close on outside click — dropdown lives in a portal, so check both
   React.useEffect(() => {
     if (!open) return
     function onPointerDown(e: PointerEvent) {
-      if (!containerRef.current?.contains(e.target as Node)) close()
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (dropdownRef.current?.contains(target)) return
+      close()
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") close()
@@ -33,6 +48,33 @@ export function DropdownMenu({ trigger, children, align = "end", className }: Dr
     }
   }, [open, close])
 
+  // Position the portaled dropdown against the trigger
+  React.useLayoutEffect(() => {
+    if (!open) { setDropdownPos(null); return }
+    function compute() {
+      const el = containerRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const gap = 4
+      const spaceBelow = window.innerHeight - rect.bottom - gap
+      const spaceAbove = rect.top - gap
+      const openUpward = spaceBelow < 200 && spaceAbove > spaceBelow
+      setDropdownPos({
+        top: openUpward ? rect.top : rect.bottom,
+        left: rect.left,
+        width: rect.width,
+        openUpward,
+      })
+    }
+    compute()
+    window.addEventListener("scroll", compute, true)
+    window.addEventListener("resize", compute)
+    return () => {
+      window.removeEventListener("scroll", compute, true)
+      window.removeEventListener("resize", compute)
+    }
+  }, [open])
+
   const wrappedTrigger = React.cloneElement(trigger, {
     onClick: (e: React.MouseEvent) => {
       const original = (trigger.props as { onClick?: (e: React.MouseEvent) => void }).onClick
@@ -44,23 +86,36 @@ export function DropdownMenu({ trigger, children, align = "end", className }: Dr
   } as Partial<React.HTMLAttributes<HTMLElement>>)
 
   return (
-    <div ref={containerRef} className="relative inline-block">
+    <div ref={containerRef} className="inline-block">
       {wrappedTrigger}
-      {open && (
+      {open && mounted && dropdownPos && createPortal(
         <DropdownContext.Provider value={{ close }}>
           <div
+            ref={dropdownRef}
             role="menu"
+            style={{
+              position: "fixed",
+              top: dropdownPos.openUpward ? undefined : dropdownPos.top + 4,
+              bottom: dropdownPos.openUpward
+                ? window.innerHeight - dropdownPos.top + 4
+                : undefined,
+              left: align === "end" ? undefined : dropdownPos.left,
+              right: align === "end"
+                ? window.innerWidth - dropdownPos.left - dropdownPos.width
+                : undefined,
+              minWidth: dropdownPos.width,
+              zIndex: 100,
+            }}
             className={cn(
-              "absolute top-full mt-1.5 z-50 min-w-[200px]",
               "rounded-lg border border-border bg-surface-raised shadow-lg p-1",
               "animate-scale-in origin-top",
-              align === "end" ? "right-0" : "left-0",
               className
             )}
           >
             {children}
           </div>
-        </DropdownContext.Provider>
+        </DropdownContext.Provider>,
+        document.body
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils/cn"
 import { Check, ChevronDown, Search } from "lucide-react"
 
@@ -37,10 +38,21 @@ export function Select({
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
   const [focusedIndex, setFocusedIndex] = React.useState(-1)
+  const [mounted, setMounted] = React.useState(false)
+  const [dropdownPos, setDropdownPos] = React.useState<{
+    top: number
+    left: number
+    width: number
+    openUpward: boolean
+    maxHeight: number
+  } | null>(null)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
   const listRef = React.useRef<HTMLUListElement>(null)
   const searchRef = React.useRef<HTMLInputElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const dropdownRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => { setMounted(true) }, [])
 
   const selected = options.find((o) => o.value === value)
 
@@ -52,17 +64,54 @@ export function Select({
       )
     : options
 
-  // Close on outside click
+  // Close on outside click — dropdown lives in a portal, so check both
+  // the trigger container and the dropdown element.
   React.useEffect(() => {
     if (!open) return
     function onPointerDown(e: PointerEvent) {
-      if (!containerRef.current?.contains(e.target as Node)) {
-        setOpen(false)
-        setQuery("")
-      }
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (dropdownRef.current?.contains(target)) return
+      setOpen(false)
+      setQuery("")
     }
     document.addEventListener("pointerdown", onPointerDown)
     return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [open])
+
+  // Position the portaled dropdown against the trigger. Recompute on
+  // scroll/resize so it tracks the trigger while open.
+  React.useLayoutEffect(() => {
+    if (!open) { setDropdownPos(null); return }
+    function compute() {
+      const trigger = triggerRef.current
+      if (!trigger) return
+      const rect = trigger.getBoundingClientRect()
+      const preferredHeight = 320 // matches max-h-72 + search row headroom
+      const viewportPadding = 8 // breathing room from viewport edge
+      const gap = 4 // gap between trigger and dropdown
+      const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPadding
+      const spaceAbove = rect.top - gap - viewportPadding
+      // Prefer downward when it can show the full dropdown; otherwise pick the
+      // side with more room so users never see a clipped, scroll-locked list.
+      const openUpward = spaceBelow < preferredHeight && spaceAbove > spaceBelow
+      const available = openUpward ? spaceAbove : spaceBelow
+      const maxHeight = Math.max(120, Math.min(preferredHeight, available))
+      setDropdownPos({
+        top: openUpward ? rect.top : rect.bottom,
+        left: rect.left,
+        width: rect.width,
+        openUpward,
+        maxHeight,
+      })
+    }
+    compute()
+    window.addEventListener("scroll", compute, true)
+    window.addEventListener("resize", compute)
+    return () => {
+      window.removeEventListener("scroll", compute, true)
+      window.removeEventListener("resize", compute)
+    }
   }, [open])
 
   // Auto-focus search when open
@@ -158,14 +207,29 @@ export function Select({
         />
       </button>
 
-      {/* Dropdown */}
-      {open && (
+      {/* Dropdown — portaled so overflow:hidden/auto on any ancestor
+          (scrollable Settings <main>, modal/side-panel wrappers, etc.)
+          cannot clip it. Positioned with fixed coords against the trigger. */}
+      {open && mounted && dropdownPos && createPortal(
         <div
+          ref={dropdownRef}
+          onKeyDown={handleKeyDown}
+          style={{
+            position: "fixed",
+            top: dropdownPos.openUpward ? undefined : dropdownPos.top + 4,
+            bottom: dropdownPos.openUpward
+              ? window.innerHeight - dropdownPos.top + 4
+              : undefined,
+            left: dropdownPos.left,
+            width: dropdownPos.width,
+            minWidth: dropdownPos.width,
+            maxHeight: dropdownPos.maxHeight,
+            zIndex: 100,
+          }}
           className={cn(
-            "absolute z-50 mt-1 w-full rounded-xl border border-border bg-surface-raised shadow-md",
-            "animate-slide-up overflow-hidden"
+            "rounded-xl border border-border bg-surface-raised shadow-md",
+            "animate-slide-up overflow-hidden flex flex-col"
           )}
-          style={{ minWidth: "100%" }}
         >
           {/* Search */}
           {searchable && (
@@ -186,7 +250,7 @@ export function Select({
           <ul
             ref={listRef}
             role="listbox"
-            className="max-h-72 overflow-y-auto py-1"
+            className="flex-1 min-h-0 overflow-y-auto py-1"
           >
             {filtered.length === 0 ? (
               <li className="px-3 py-6 text-center text-sm text-faint">No results</li>
@@ -230,7 +294,8 @@ export function Select({
               })
             )}
           </ul>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
