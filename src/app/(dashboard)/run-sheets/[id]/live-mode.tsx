@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
-import { X, ChevronLeft, SkipForward, Check, Clock } from "lucide-react"
+import { X, ChevronLeft, SkipForward, Check, ArrowRight } from "lucide-react"
 
 import { cn } from "@/lib/utils/cn"
 import { Button } from "@/components/ui/button"
@@ -40,8 +40,8 @@ interface LiveSession {
   }[]
 }
 
-const RING = 132
-const STROKE = 5
+/** Dial radius in the 100×100 viewBox — leaves room for the round stroke cap. */
+const RADIUS = 46
 
 export function LiveMode({
   sheetTitle,
@@ -140,7 +140,6 @@ export function LiveMode({
   const urgent = !over && remainingMs < 60_000
 
   const ringColor = over ? "var(--color-danger)" : urgent ? "var(--warning)" : "var(--color-primary)"
-  const circumference = Math.PI * (RING - STROKE)
 
   const filledCues = current.run_sheet_session_cues
     .map((c) => ({
@@ -197,143 +196,129 @@ export function LiveMode({
         ))}
       </div>
 
+
       {/* ── Stage ─────────────────────────────────────────────── */}
-      <div className="relative flex min-h-0 flex-1 overflow-y-auto">
-        {/* A single soft wash behind the stage. Enough to separate the content from
-            the chrome without becoming decoration. */}
+      <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-4">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0"
           style={{
             background: over
-              ? "radial-gradient(120% 80% at 50% 0%, color-mix(in oklab, var(--color-danger) 9%, transparent), transparent 65%)"
-              : "radial-gradient(120% 80% at 50% 0%, color-mix(in oklab, var(--color-primary) 6%, transparent), transparent 65%)",
+              ? "radial-gradient(60% 50% at 50% 45%, color-mix(in oklab, var(--color-danger) 11%, transparent), transparent 70%)"
+              : "radial-gradient(60% 50% at 50% 45%, color-mix(in oklab, var(--color-primary) 7%, transparent), transparent 70%)",
             transition: "background 600ms var(--ease-out-quart)",
           }}
         />
 
-        <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 content-center gap-10 px-6 py-8 lg:grid-cols-[220px_1fr] lg:gap-14">
-          {/* ── Timing column ─────────────────────────────────── */}
-          <div className="flex flex-row items-center gap-8 lg:flex-col lg:items-start lg:gap-7">
-            <div className="relative shrink-0" style={{ width: RING, height: RING }}>
-              <svg width={RING} height={RING} className="-rotate-90 overflow-visible">
-                <circle
-                  cx={RING / 2}
-                  cy={RING / 2}
-                  r={(RING - STROKE) / 2}
-                  fill="none"
-                  stroke="var(--color-border)"
-                  strokeWidth={STROKE}
-                />
-                <circle
-                  cx={RING / 2}
-                  cy={RING / 2}
-                  r={(RING - STROKE) / 2}
-                  fill="none"
-                  stroke={ringColor}
-                  strokeWidth={STROKE}
-                  strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={circumference * (1 - ratio)}
-                  className="transition-[stroke-dashoffset,stroke] duration-1000 ease-linear"
-                  style={{ filter: over ? "drop-shadow(0 0 8px color-mix(in oklab, var(--color-danger) 45%, transparent))" : undefined }}
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span
-                  className={cn(
-                    "font-semibold tabular-nums leading-none tracking-[-0.03em]",
-                    "text-[30px]",
-                    over ? "text-danger" : urgent ? "text-[var(--warning)]" : "text-foreground"
-                  )}
-                >
-                  {over && "+"}
-                  {clock(Math.abs(remainingMs))}
-                </span>
-                <span className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-faint">
-                  {over ? "over" : "remaining"}
-                </span>
-              </div>
-            </div>
+        <div className="relative flex w-full max-w-3xl flex-col items-center">
+          {/* Session identity above the dial — named, but not shouting. */}
+          <p className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-faint">
+            Now · {idx + 1} of {ordered.length}
+          </p>
+          <h1
+            key={current.id}
+            className="mt-2 animate-[slide-up_var(--duration-medium)_var(--ease-out-expo)] text-center
+                       text-[clamp(1.25rem,2.4vw,1.7rem)] font-semibold leading-tight tracking-[-0.015em] text-foreground"
+          >
+            {current.name}
+          </h1>
+          <p className="mt-1 text-[12px] tabular-nums text-muted">
+            {format(new Date(current.start_time!), "h:mm")} –{" "}
+            {format(new Date(current.end_time!), "h:mm a")}
+            <span className="mx-1.5 text-faint">·</span>
+            {Math.round(plannedMs / 60_000)} min planned
+          </p>
 
-            {/* Drift — the number a director actually acts on. */}
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-faint">
-                Against plan
-              </p>
-              <p
+          {/* The dial. The largest thing on screen, because it answers the question
+              you are actually asking every few seconds. */}
+          <div
+            className="relative mt-6"
+            style={{ width: "min(52vh, 380px)", height: "min(52vh, 380px)" }}
+          >
+            <svg viewBox="0 0 100 100" className="size-full -rotate-90">
+              <circle cx="50" cy="50" r={RADIUS} fill="none" stroke="var(--color-border)" strokeWidth="2.5" />
+              <circle
+                cx="50"
+                cy="50"
+                r={RADIUS}
+                fill="none"
+                stroke={ringColor}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * RADIUS}
+                strokeDashoffset={2 * Math.PI * RADIUS * (1 - ratio)}
+                className="transition-[stroke-dashoffset,stroke] duration-1000 ease-linear"
+                style={{
+                  filter: over
+                    ? "drop-shadow(0 0 3px color-mix(in oklab, var(--color-danger) 60%, transparent))"
+                    : undefined,
+                }}
+              />
+            </svg>
+
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span
                 className={cn(
-                  "mt-1 text-[15px] font-medium tabular-nums leading-tight",
-                  onTime ? "text-[var(--success)]" : driftMs > 0 ? "text-danger" : "text-[var(--color-info)]"
+                  "font-semibold tabular-nums leading-none tracking-[-0.04em]",
+                  "text-[clamp(3rem,11vh,5.5rem)]",
+                  over ? "text-danger" : urgent ? "text-[var(--warning)]" : "text-foreground"
                 )}
               >
-                {onTime
-                  ? "On time"
-                  : `${clock(Math.abs(driftMs))} ${driftMs > 0 ? "behind" : "ahead"}`}
-              </p>
-              <p className="mt-3 text-[10px] font-medium uppercase tracking-[0.12em] text-faint">
-                Session
-              </p>
-              <p className="mt-1 text-[13px] tabular-nums text-muted">
-                {idx + 1} of {ordered.length}
-              </p>
+                {over && "+"}
+                {clock(Math.abs(remainingMs))}
+              </span>
+              <span className="mt-2.5 text-[11px] font-medium uppercase tracking-[0.16em] text-faint">
+                {over ? "over" : "remaining"}
+              </span>
+
+              <span
+                className={cn(
+                  "mt-4 rounded-full px-2.5 py-1 text-[11.5px] font-medium tabular-nums",
+                  onTime
+                    ? "bg-[var(--success-soft)] text-[var(--success)]"
+                    : driftMs > 0
+                      ? "bg-[var(--color-danger-soft)] text-danger"
+                      : "bg-[var(--color-info-soft)] text-[var(--color-info)]"
+                )}
+              >
+                {onTime ? "On time" : `${clock(Math.abs(driftMs))} ${driftMs > 0 ? "behind" : "ahead"}`}
+              </span>
             </div>
           </div>
 
-          {/* ── Content column ────────────────────────────────── */}
-          <div className="min-w-0">
-            <p className="flex items-center gap-2 text-[12px] tabular-nums text-muted">
-              <Clock className="size-3.5 shrink-0" />
-              {format(new Date(current.start_time!), "h:mm")} –{" "}
-              {format(new Date(current.end_time!), "h:mm a")}
-              <span className="text-faint">·</span>
-              {Math.round(plannedMs / 60_000)} min planned
+          {/* Cues sit under the dial, still the largest reading text. */}
+          {filledCues.length > 0 && (
+            <ul className="mt-7 grid w-full gap-2.5 sm:grid-cols-2">
+              {filledCues.map((c, i) => (
+                <li
+                  key={c.name}
+                  style={{ animationDelay: `${i * 45}ms` }}
+                  className="animate-[slide-up_var(--duration-medium)_var(--ease-out-expo)_backwards]
+                             relative overflow-hidden rounded-md border border-border bg-surface p-3.5"
+                >
+                  <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-primary/60" />
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+                    {c.name}
+                  </p>
+                  <p className="mt-1.5 text-[15px] leading-snug text-foreground">{c.text}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {current.run_sheet_session_members.length > 0 && (
+            <p className="mt-5 text-center text-[12.5px] text-muted">
+              {current.run_sheet_session_members
+                .map((m) => m.users?.full_name ?? m.role_title ?? "Unassigned")
+                .join(" · ")}
             </p>
+          )}
 
-            <h1
-              key={current.id}
-              className="mt-2.5 animate-[slide-up_var(--duration-medium)_var(--ease-out-expo)] text-[clamp(2rem,5vw,3.4rem)]
-                         font-semibold leading-[1.02] tracking-[-0.025em] text-foreground"
-            >
-              {current.name}
-            </h1>
-
-            {current.run_sheet_session_members.length > 0 && (
-              <p className="mt-3 text-[13px] text-muted">
-                {current.run_sheet_session_members
-                  .map((m) => m.users?.full_name ?? m.role_title ?? "Unassigned")
-                  .join(" · ")}
-              </p>
-            )}
-
-            {filledCues.length > 0 ? (
-              <ul className="mt-7 grid gap-2.5 sm:grid-cols-2">
-                {filledCues.map((c, i) => (
-                  <li
-                    key={c.name}
-                    style={{ animationDelay: `${i * 45}ms` }}
-                    className="animate-[slide-up_var(--duration-medium)_var(--ease-out-expo)_backwards]
-                               relative overflow-hidden rounded-xl border border-border bg-surface p-4"
-                  >
-                    {/* Unit accent, so a crew member finds their own cue by shape not reading. */}
-                    <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-primary/60" />
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-                      {c.name}
-                    </p>
-                    <p className="mt-2 text-[16px] leading-snug text-foreground">{c.text}</p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-7 text-[13px] italic text-faint">No cues for this session</p>
-            )}
-
-            {current.notes && (
-              <p className="mt-3 rounded-xl border border-border-subtle bg-[var(--surface-subtle)] p-4 text-[13.5px] leading-relaxed text-foreground">
-                {current.notes}
-              </p>
-            )}
-          </div>
+          {current.notes && (
+            <p className="mt-4 w-full rounded-md border border-border-subtle bg-[var(--surface-subtle)] p-3.5 text-[13px] leading-relaxed text-foreground">
+              {current.notes}
+            </p>
+          )}
         </div>
       </div>
 
@@ -344,13 +329,18 @@ export function LiveMode({
             <ChevronLeft className="size-3.5" /> Back
           </Button>
 
+          {/* What's coming, stated as a destination rather than a footnote. */}
           {next ? (
-            <p className="hidden min-w-0 flex-1 truncate px-4 text-center text-[12.5px] text-muted sm:block">
-              Up next · <span className="font-medium text-foreground">{next.name}</span>
-              <span className="ml-1.5 tabular-nums text-faint">
+            <div className="hidden min-w-0 flex-1 items-center justify-center gap-2.5 px-4 sm:flex">
+              <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-faint">
+                Up next
+              </span>
+              <ArrowRight className="size-3.5 shrink-0 text-faint" />
+              <span className="truncate text-[13.5px] font-medium text-foreground">{next.name}</span>
+              <span className="shrink-0 rounded bg-[var(--surface-subtle)] px-1.5 py-0.5 text-[11px] tabular-nums text-muted">
                 {format(new Date(next.start_time!), "h:mm a")}
               </span>
-            </p>
+            </div>
           ) : (
             <p className="hidden flex-1 px-4 text-center text-[12.5px] text-faint sm:block">
               Last session

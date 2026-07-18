@@ -33,8 +33,8 @@ import { Modal } from "@/components/ui/modal"
 import { SidePanel } from "@/components/ui/side-panel"
 import { FormField } from "@/components/ui/form-field"
 import { Select } from "@/components/ui/select"
+import { TimeField } from "@/components/ui/time-field"
 import { Badge } from "@/components/ui/badge"
-import { EmptyState } from "@/components/ui/empty-state"
 
 /**
  * Zoom levels, in pixels per hour.
@@ -353,6 +353,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
               onAddRange={(from, to) => setCreateAt({ start: from, end: to })}
               onPeek={(s, a) => setPeek(s ? { session: s, anchor: a! } : null)}
               onMove={(id, start, end) => requestRetime(id, start, end)}
+              onResize={(id, start, end) => requestRetime(id, start, end)}
             />
           )}
         </div>
@@ -607,115 +608,194 @@ function SessionPanel({
   onAddMember: (userId: string) => void
   onRemoveMember: (memberId: string) => void
 }) {
-  const placedNow = isPlaced(session)
-  const [start, setStart] = useState(
-    placedNow ? toLocalInput(new Date(session.start_time!)) : ""
-  )
-  const [end, setEnd] = useState(placedNow ? toLocalInput(new Date(session.end_time!)) : "")
+  // Only the time of day is editable — a session belongs to its sheet's date, so a
+  // date picker here would be a second, contradictable source of truth.
+  const [start, setStart] = useState(() => new Date(session.start_time!))
+  const [end, setEnd] = useState(() => new Date(session.end_time!))
   const [addingMember, setAddingMember] = useState("")
 
   const timesChanged =
-    start !== "" &&
-    end !== "" &&
-    (!placedNow ||
-      new Date(start).toISOString() !== session.start_time ||
-      new Date(end).toISOString() !== session.end_time)
-
-  const timesValid = start !== "" && end !== "" && new Date(end) > new Date(start)
+    start.toISOString() !== session.start_time || end.toISOString() !== session.end_time
+  const timesValid = +end > +start
+  const durationMins = Math.round((+end - +start) / 60_000)
 
   const assignedIds = new Set(session.run_sheet_session_members.map((m) => m.user_id))
   const available = users.filter((u) => !assignedIds.has(u.id))
+  const filledCues = session.run_sheet_session_cues.filter((c) => c.cue_text?.trim()).length
 
   return (
-    <SidePanel open onClose={onClose} title={session.name}>
-      <div className="space-y-6 p-5">
-        {/* Times */}
-        <section className="space-y-3">
-          <h3 className="flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-            <Clock className="size-3.5" /> Timing
-          </h3>
+    <SidePanel
+      open
+      onClose={onClose}
+      title={session.name}
+      headerSlot={
+        <span className="text-[12px] tabular-nums text-muted">
+          {format(new Date(session.start_time!), "h:mm a")} –{" "}
+          {format(new Date(session.end_time!), "h:mm a")}
+        </span>
+      }
+    >
+      <div className="divide-y divide-border-subtle">
+        {/* ── Timing ──────────────────────────────────────────── */}
+        <section className="p-5">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+              <Clock className="size-3.5" /> Timing
+            </h3>
+            <span className="text-[11.5px] tabular-nums text-faint">
+              {durationMins > 0 ? `${durationMins} min` : "—"}
+            </span>
+          </div>
+
           {canEdit ? (
             <>
-              <div className="grid grid-cols-2 gap-3">
-                <FormField label="Start">
-                  <Input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
+              <div className="grid grid-cols-2 gap-2.5">
+                <FormField label="Starts">
+                  <TimeField value={start} onChange={setStart} aria-label="Start time" />
                 </FormField>
-                <FormField label="End">
-                  <Input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
+                <FormField label="Ends">
+                  {/* Annotated with duration, so picking an end time is picking a length. */}
+                  <TimeField value={end} onChange={setEnd} relativeTo={start} aria-label="End time" />
                 </FormField>
               </div>
-              {timesChanged && timesValid && (
-                <Button
-                  size="sm"
-                  loading={busy}
-                  onClick={() =>
-                    onRetime(new Date(start).toISOString(), new Date(end).toISOString())
-                  }
-                >
-                  {placedNow ? "Update times" : "Place on timeline"}
-                </Button>
+
+              {!timesValid && (
+                <p className="mt-2.5 text-[12px] text-danger">End time must be after the start.</p>
               )}
-              {start !== "" && end !== "" && !timesValid && (
-                <p className="text-[12px] text-danger">End time must be after start time.</p>
+
+              {timesChanged && timesValid && (
+                <div className="mt-3 flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    loading={busy}
+                    onClick={() => onRetime(start.toISOString(), end.toISOString())}
+                  >
+                    Save times
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setStart(new Date(session.start_time!))
+                      setEnd(new Date(session.end_time!))
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </div>
               )}
             </>
           ) : (
-            <p className="text-[13px] text-foreground">
-              {placedNow
-                ? `${format(new Date(session.start_time!), "h:mm a")} – ${format(new Date(session.end_time!), "h:mm a")}`
-                : "Not yet scheduled"}
+            <p className="text-[13px] tabular-nums text-foreground">
+              {format(new Date(session.start_time!), "h:mm a")} –{" "}
+              {format(new Date(session.end_time!), "h:mm a")}
+              <span className="ml-2 text-muted">· {durationMins} min</span>
             </p>
           )}
         </section>
 
-        {/* Cues — one per unit, collapsed into a simple list. */}
-        <section className="space-y-3">
-          <h3 className="text-[12px] font-medium uppercase tracking-wide text-muted">Cues</h3>
-          <div className="space-y-2.5">
+        {/* ── Cues ────────────────────────────────────────────── */}
+        <section className="p-5">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Cues</h3>
+            <span className="text-[11.5px] tabular-nums text-faint">
+              {filledCues} of {subTeams.length}
+            </span>
+          </div>
+
+          <div className="space-y-2">
             {subTeams.map((st) => {
               const cue = session.run_sheet_session_cues.find((c) => c.sub_team_id === st.id)
               return (
-                <FormField key={st.id} label={st.name}>
-                  {canEdit ? (
-                    <Input
-                      defaultValue={cue?.cue_text ?? ""}
-                      placeholder="No cue"
-                      onBlur={(e) => {
-                        if (e.target.value !== (cue?.cue_text ?? "")) onCue(st.id, e.target.value)
-                      }}
-                    />
-                  ) : (
-                    <p className="text-[13px] text-foreground">{cue?.cue_text || "—"}</p>
-                  )}
-                </FormField>
+                <div
+                  key={st.id}
+                  className="relative overflow-hidden rounded-md border border-border bg-surface"
+                >
+                  {/* Filled cues carry an accent so the set is scannable at a glance. */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute inset-y-0 left-0 w-[3px]",
+                      cue?.cue_text?.trim() ? "bg-primary/70" : "bg-border"
+                    )}
+                  />
+                  <div className="py-2 pl-3.5 pr-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+                      {st.name}
+                    </p>
+                    {canEdit ? (
+                      <input
+                        defaultValue={cue?.cue_text ?? ""}
+                        placeholder="Add a cue…"
+                        onBlur={(e) => {
+                          if (e.target.value !== (cue?.cue_text ?? "")) onCue(st.id, e.target.value)
+                        }}
+                        className="mt-1 w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-faint"
+                      />
+                    ) : (
+                      <p className="mt-1 text-[13px] text-foreground">{cue?.cue_text || "—"}</p>
+                    )}
+                  </div>
+                </div>
               )
             })}
           </div>
         </section>
 
-        {/* Members */}
-        <section className="space-y-3">
-          <h3 className="flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-            <Users className="size-3.5" /> Members
-          </h3>
+        {/* ── People ──────────────────────────────────────────── */}
+        <section className="p-5">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+              <Users className="size-3.5" /> People
+            </h3>
+            <span className="text-[11.5px] tabular-nums text-faint">
+              {session.run_sheet_session_members.length}
+            </span>
+          </div>
 
           {session.run_sheet_session_members.length === 0 ? (
-            <EmptyState variant="compact" title="No one assigned" description="Add the people on this session." />
+            <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[12.5px] text-faint">
+              No one assigned yet
+            </p>
           ) : (
-            <ul className="divide-y divide-border rounded-md border border-border">
-              {session.run_sheet_session_members.map((m) => (
-                <li key={m.id} className="flex items-center gap-2 px-3 py-2">
-                  <span className="flex-1 truncate text-[13px] text-foreground">
-                    {m.users?.full_name ?? m.role_title ?? "Unassigned"}
-                  </span>
-                  <Badge variant="neutral">{m.confirmation_status}</Badge>
-                  {canEdit && (
-                    <IconButton size="xs" variant="ghost" label="Remove" onClick={() => onRemoveMember(m.id)}>
-                      <Trash2 className="size-3.5" />
-                    </IconButton>
-                  )}
-                </li>
-              ))}
+            <ul className="space-y-1.5">
+              {session.run_sheet_session_members.map((m) => {
+                const name = m.users?.full_name ?? m.role_title ?? "Unassigned"
+                return (
+                  <li
+                    key={m.id}
+                    className="group flex items-center gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2"
+                  >
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--color-primary-soft)] text-[10px] font-semibold text-foreground">
+                      {name
+                        .trim()
+                        .split(/\s+/)
+                        .slice(0, 2)
+                        .map((p) => p[0])
+                        .join("")
+                        .toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] text-foreground">{name}</span>
+                      {m.role_title && m.users && (
+                        <span className="block truncate text-[11px] text-muted">{m.role_title}</span>
+                      )}
+                    </span>
+                    <Badge variant="neutral">{m.confirmation_status}</Badge>
+                    {canEdit && (
+                      <IconButton
+                        size="xs"
+                        variant="ghost"
+                        label="Remove"
+                        className="opacity-0 transition-opacity group-hover:opacity-100"
+                        onClick={() => onRemoveMember(m.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </IconButton>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
 

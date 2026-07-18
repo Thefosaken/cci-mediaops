@@ -2,23 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
-import { GripVertical } from "lucide-react"
 
 import { cn } from "@/lib/utils/cn"
+import { planCascade, type TimelineSession } from "@/lib/utils/run-sheet-timeline"
 
 /**
  * Horizontal calendar track for a run sheet.
  *
- * Time runs left to right, as sketched. Sessions never overlap — the database
- * guarantees it — so they share a single lane, which is what makes this read as a
- * calendar rather than a Gantt chart.
+ * Sessions never overlap — the database guarantees it — so they share one lane, which
+ * is what makes this read as a calendar rather than a Gantt chart.
  *
- * Three mechanisms keep short sessions legible on a horizontal axis: the zoom control,
- * bars that reveal detail progressively by width and height, and the hover peek that
- * carries whatever a bar is too small to show.
- *
- * A session in progress fills left to right in real time, so the sheet reads as a clock
- * as well as a plan.
+ * Two direct manipulations, both behaving the way a kanban board does: everything moves
+ * live, and it snaps. Dragging a session slides it between 5-minute positions while the
+ * sessions after it shift in real time to show exactly where they will end up. Dragging
+ * the trailing edge stretches the session and pushes the rest along by the same amount.
+ * Nothing waits for the drop to reveal its consequences.
  */
 
 export interface TrackSession {
@@ -32,37 +30,36 @@ export interface TrackSession {
 }
 
 /** Width thresholds, in px, at which a bar can afford to show more. */
-const SHOW_MEMBERS = 180
-const SHOW_TIME = 104
-const SHOW_NAME = 48
+const SHOW_PEOPLE = 190
+const SHOW_TIME = 100
+const SHOW_NAME = 44
 
-/**
- * Bars are sized by their content, not by the space available.
- *
- * A session with only a name and time needs one compact block; one with people on it
- * earns a second row. Everything in the lane shares the tallest requirement so the row
- * stays level — a calendar lane with ragged block heights reads as broken.
- */
-const BAR_BASE = 56
-const BAR_MEMBER_ROW = 26
+/** Bars are sized by content: a header block, plus a people row when there's room. */
+const BAR_HEADER = 50
+const BAR_PEOPLE_ROW = 34
 
 const RULER_HEIGHT = 44
 const LANE_PADDING = 14
-/** Drag less than this and it counts as a click, not a move. */
-const DRAG_THRESHOLD = 4
-/** Snap granularity. Applied live during the drag, not just on drop. */
+const DRAG_THRESHOLD = 3
 const SNAP_MS = 5 * 60_000
+/** Hit area for the resize handle on a bar's trailing edge. */
+const RESIZE_GRIP = 10
+const MIN_DURATION_MS = 5 * 60_000
 
-/** Lane height needed for a given set of sessions. */
 export function laneHeightFor(sessions: TrackSession[], hourPx: number) {
-  const anyMembers = sessions.some(
+  const anyPeople = sessions.some(
     (s) =>
       s.members.length > 0 &&
-      ((new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 3_600_000) * hourPx >=
-        SHOW_MEMBERS
+      ((+new Date(s.end_time) - +new Date(s.start_time)) / 3_600_000) * hourPx >= SHOW_PEOPLE
   )
-  return BAR_BASE + (anyMembers ? BAR_MEMBER_ROW : 0) + LANE_PADDING * 2
+  return BAR_HEADER + (anyPeople ? BAR_PEOPLE_ROW : 0) + LANE_PADDING * 2
 }
+
+/** What the pointer is currently doing to a session. */
+type Gesture =
+  | { kind: "move"; id: string; deltaMs: number }
+  | { kind: "resize"; id: string; deltaMs: number }
+  | null
 
 export function TimelineTrack({
   sessions,
@@ -77,6 +74,7 @@ export function TimelineTrack({
   onAddRange,
   onPeek,
   onMove,
+  onResize,
 }: {
   sessions: TrackSession[]
   windowStart: Date
@@ -90,22 +88,18 @@ export function TimelineTrack({
   onAddRange: (from: Date, to: Date) => void
   onPeek: (session: TrackSession | null, anchor: DOMRect | null) => void
   onMove: (id: string, newStart: string, newEnd: string) => void
+  onResize: (id: string, newStart: string, newEnd: string) => void
 }) {
   const trackRef = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(() => Date.now())
-  const [dragging, setDragging] = useState<{ id: string; dx: number } | null>(null)
-  /** An in-progress press-and-drag on empty track, defining a new session's span. */
+  const [gesture, setGesture] = useState<Gesture>(null)
   const [drawing, setDrawing] = useState<{ fromMs: number; toMs: number } | null>(null)
   const drawRef = useRef<{ fromMs: number } | null>(null)
 
   const width = hourCount * hourPx
   const startMs = windowStart.getTime()
-  const endMs = startMs + hourCount * 3_600_000
+  const withinWindow = now >= startMs && now <= startMs + hourCount * 3_600_000
 
-  const withinWindow = now >= startMs && now <= endMs
-
-  // Tick often enough that a progress fill moves visibly, rarely enough to stay cheap.
-  // The fill itself transitions between ticks, so it reads as continuous.
   useEffect(() => {
     if (!withinWindow) return
     const t = setInterval(() => setNow(Date.now()), 15_000)
@@ -114,7 +108,6 @@ export function TimelineTrack({
 
   const xFor = useCallback((ms: number) => ((ms - startMs) / 3_600_000) * hourPx, [startMs, hourPx])
 
-  /** Snap a pixel offset to the nearest 15 minutes — the granularity people plan in. */
   const timeAtX = (x: number) => {
     const ms = startMs + (x / hourPx) * 3_600_000
     const quarter = 15 * 60_000
@@ -126,11 +119,74 @@ export function TimelineTrack({
     [hourCount, startMs]
   )
 
+  /**
+   * Where every session sits right now, including the effect of an in-flight gesture.
+   *
+   * This is the kanban behaviour: the same cascade maths the server will run is run
+   * here on every pointer move, so the sessions after the one being dragged slide out
+   * of the way live. Dropping simply commits what is already on screen.
+   */
+  const displaced = useMemo(() => {
+    const map = new Map<string, { start: number; end: number }>()
+    if (!gesture) return map
+
+    const target = sessions.find((s) => s.id === gesture.id)
+    if (!target) return map
+
+    const origStart = +new Date(target.start_time)
+    const origEnd = +new Date(target.end_time)
+
+    const nextStart = gesture.kind === "move" ? origStart + gesture.deltaMs : origStart
+    const nextEnd =
+      gesture.kind === "move"
+        ? origEnd + gesture.deltaMs
+        : Math.max(origStart + MIN_DURATION_MS, origEnd + gesture.deltaMs)
+
+    map.set(target.id, { start: nextStart, end: nextEnd })
+
+    const timeline: TimelineSession[] = sessions.map((s) => ({
+      id: s.id,
+      name: s.name,
+      start_time: s.start_time,
+      end_time: s.end_time,
+    }))
+
+    try {
+      const plan = planCascade(
+        timeline,
+        gesture.id,
+        new Date(nextStart).toISOString(),
+        new Date(nextEnd).toISOString()
+      )
+      for (const m of plan.moves) {
+        map.set(m.id, { start: +new Date(m.toStart), end: +new Date(m.toEnd) })
+      }
+    } catch {
+      // An invalid interval mid-gesture just means no preview for the others.
+    }
+    return map
+  }, [gesture, sessions])
+
+  const commit = (g: Exclude<Gesture, null>) => {
+    const target = sessions.find((s) => s.id === g.id)
+    if (!target || g.deltaMs === 0) return
+    const origStart = +new Date(target.start_time)
+    const origEnd = +new Date(target.end_time)
+
+    if (g.kind === "move") {
+      onMove(
+        g.id,
+        new Date(origStart + g.deltaMs).toISOString(),
+        new Date(origEnd + g.deltaMs).toISOString()
+      )
+    } else {
+      const end = Math.max(origStart + MIN_DURATION_MS, origEnd + g.deltaMs)
+      onResize(g.id, new Date(origStart).toISOString(), new Date(end).toISOString())
+    }
+  }
+
   return (
-    <div
-      className="flex-1 overflow-auto overscroll-x-contain"
-      style={{ scrollbarGutter: "stable" }}
-    >
+    <div className="flex-1 overflow-auto overscroll-x-contain" style={{ scrollbarGutter: "stable" }}>
       <div style={{ width, minWidth: "100%" }} className="relative select-none">
         {/* ── Ruler ─────────────────────────────────────────────── */}
         <div
@@ -151,14 +207,13 @@ export function TimelineTrack({
         {/* ── Lane ──────────────────────────────────────────────── */}
         <div
           ref={trackRef}
-          className={cn("relative", canEdit && !dragging && "cursor-crosshair")}
+          className={cn("relative", canEdit && !gesture && "cursor-crosshair")}
           style={{ height: laneHeight }}
           onPointerDown={(e) => {
             if (!canEdit || !trackRef.current) return
             if ((e.target as HTMLElement).closest("[data-session-bar]")) return
             const x = e.clientX - trackRef.current.getBoundingClientRect().left
-            const from = timeAtX(x).getTime()
-            drawRef.current = { fromMs: from }
+            drawRef.current = { fromMs: timeAtX(x).getTime() }
             ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
           }}
           onPointerMove={(e) => {
@@ -172,15 +227,13 @@ export function TimelineTrack({
             drawRef.current = null
             setDrawing(null)
             if (!draw) return
-
-            // A press with no meaningful drag creates a default 30-minute session;
-            // a drag defines its own span.
             if (!span || Math.abs(span.toMs - span.fromMs) < 60_000) {
               onAddAt(new Date(draw.fromMs))
             } else {
-              const from = Math.min(span.fromMs, span.toMs)
-              const to = Math.max(span.fromMs, span.toMs)
-              onAddRange(new Date(from), new Date(to))
+              onAddRange(
+                new Date(Math.min(span.fromMs, span.toMs)),
+                new Date(Math.max(span.fromMs, span.toMs))
+              )
             }
           }}
           onPointerCancel={() => {
@@ -198,19 +251,14 @@ export function TimelineTrack({
             ))}
           </div>
 
-          {/* The span being drawn. Appears only once you have pressed and moved —
-              nothing tracks an idle cursor. */}
+          {/* Span being drawn */}
           {drawing && Math.abs(drawing.toMs - drawing.fromMs) >= 60_000 && (
             <div
               aria-hidden
-              className="pointer-events-none absolute flex items-center justify-center rounded-xl
-                         border border-primary/60 bg-primary/10"
+              className="pointer-events-none absolute flex items-center justify-center rounded-md border border-primary/60 bg-primary/10"
               style={{
                 left: Math.round(xFor(Math.min(drawing.fromMs, drawing.toMs))),
-                width: Math.max(
-                  (Math.abs(drawing.toMs - drawing.fromMs) / 3_600_000) * hourPx,
-                  2
-                ),
+                width: Math.max((Math.abs(drawing.toMs - drawing.fromMs) / 3_600_000) * hourPx, 2),
                 top: LANE_PADDING,
                 height: laneHeight - LANE_PADDING * 2,
               }}
@@ -223,30 +271,37 @@ export function TimelineTrack({
           )}
 
           {/* Sessions */}
-          {sessions.map((s, i) => (
-            <SessionBar
-              key={s.id}
-              session={s}
-              left={xFor(new Date(s.start_time).getTime())}
-              width={Math.max(
-                ((new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 3_600_000) * hourPx,
-                6
-              )}
-              laneHeight={laneHeight}
-              hourPx={hourPx}
-              index={i}
-              now={now}
-              canEdit={canEdit}
-              selected={selectedId === s.id}
-              dragDx={dragging?.id === s.id ? dragging.dx : 0}
-              onSelect={() => onSelect(s.id)}
-              onPeek={onPeek}
-              onDragState={setDragging}
-              onMove={onMove}
-            />
-          ))}
+          {sessions.map((s, i) => {
+            const moved = displaced.get(s.id)
+            const start = moved?.start ?? +new Date(s.start_time)
+            const end = moved?.end ?? +new Date(s.end_time)
+            const isTarget = gesture?.id === s.id
 
-          {/* Now line — the single red element on the track. */}
+            return (
+              <SessionBar
+                key={s.id}
+                session={s}
+                left={xFor(start)}
+                width={Math.max(((end - start) / 3_600_000) * hourPx, 6)}
+                start={start}
+                end={end}
+                laneHeight={laneHeight}
+                hourPx={hourPx}
+                index={i}
+                now={now}
+                canEdit={canEdit}
+                selected={selectedId === s.id}
+                active={isTarget}
+                nudged={Boolean(moved) && !isTarget}
+                onSelect={() => onSelect(s.id)}
+                onPeek={onPeek}
+                onGesture={setGesture}
+                onCommit={commit}
+              />
+            )
+          })}
+
+          {/* Now line */}
           {withinWindow && (
             <div
               aria-hidden
@@ -269,41 +324,43 @@ function SessionBar({
   session,
   left,
   width,
+  start,
+  end,
   laneHeight,
   hourPx,
   index,
   now,
   canEdit,
   selected,
-  dragDx,
+  active,
+  nudged,
   onSelect,
   onPeek,
-  onDragState,
-  onMove,
+  onGesture,
+  onCommit,
 }: {
   session: TrackSession
   left: number
   width: number
+  start: number
+  end: number
   laneHeight: number
   hourPx: number
   index: number
   now: number
   canEdit: boolean
   selected: boolean
-  dragDx: number
+  active: boolean
+  nudged: boolean
   onSelect: () => void
   onPeek: (s: TrackSession | null, anchor: DOMRect | null) => void
-  onDragState: (d: { id: string; dx: number } | null) => void
-  onMove: (id: string, newStart: string, newEnd: string) => void
+  onGesture: (g: Gesture) => void
+  onCommit: (g: Exclude<Gesture, null>) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const drag = useRef<{ startX: number; moved: boolean } | null>(null)
+  const drag = useRef<{ startX: number; kind: "move" | "resize"; moved: boolean } | null>(null)
 
-  const start = new Date(session.start_time).getTime()
-  const end = new Date(session.end_time).getTime()
-
-  /** 0 before it starts, 1 once it's over — drives the fill. */
   const progress = now <= start ? 0 : now >= end ? 1 : (now - start) / (end - start)
   const running = progress > 0 && progress < 1
 
@@ -324,51 +381,46 @@ function SessionBar({
     }
   }, [])
 
-  /* ── Drag to reschedule ──────────────────────────────────────── */
   const onPointerDown = (e: React.PointerEvent) => {
     if (!canEdit) return
     e.stopPropagation()
-    drag.current = { startX: e.clientX, moved: false }
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    // The trailing edge resizes; anywhere else moves.
+    const kind = rect.right - e.clientX <= RESIZE_GRIP ? "resize" : "move"
+    drag.current = { startX: e.clientX, kind, moved: false }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     closePeek()
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current) return
-    const rawDx = e.clientX - drag.current.startX
-    if (!drag.current.moved && Math.abs(rawDx) < DRAG_THRESHOLD) return
+    const raw = e.clientX - drag.current.startX
+    if (!drag.current.moved && Math.abs(raw) < DRAG_THRESHOLD) return
     drag.current.moved = true
-
-    // Snap while dragging, not on drop. The bar steps between 5-minute positions so
-    // where it sits is always where it will land — no correction on release.
-    const snappedMs = Math.round(((rawDx / hourPx) * 3_600_000) / SNAP_MS) * SNAP_MS
-    const snappedDx = (snappedMs / 3_600_000) * hourPx
-    onDragState({ id: session.id, dx: snappedDx })
+    // Snap while moving, so the bar always sits where it will land.
+    const deltaMs = Math.round(((raw / hourPx) * 3_600_000) / SNAP_MS) * SNAP_MS
+    onGesture({ kind: drag.current.kind, id: session.id, deltaMs })
   }
 
   const onPointerUp = (e: React.PointerEvent) => {
     if (!drag.current) return
-    const dx = e.clientX - drag.current.startX
-    const moved = drag.current.moved
+    const raw = e.clientX - drag.current.startX
+    const { kind, moved } = drag.current
     drag.current = null
-    onDragState(null)
 
-    // Below the threshold this was a click, not a drag.
-    if (!moved) return onSelect()
-
-    // Same snap the drag was already showing, so the bar lands exactly where it sat.
-    const deltaMs = Math.round(((dx / hourPx) * 3_600_000) / SNAP_MS) * SNAP_MS
-    if (deltaMs === 0) return
-    onMove(
-      session.id,
-      new Date(start + deltaMs).toISOString(),
-      new Date(end + deltaMs).toISOString()
-    )
+    if (!moved) {
+      onGesture(null)
+      return onSelect()
+    }
+    const deltaMs = Math.round(((raw / hourPx) * 3_600_000) / SNAP_MS) * SNAP_MS
+    onCommit({ kind, id: session.id, deltaMs })
+    onGesture(null)
   }
 
   const done = session.status === "completed"
   const skipped = session.status === "skipped"
-  const isDragging = dragDx !== 0
+  const showPeople = width >= SHOW_PEOPLE && session.members.length > 0
+  const lead = session.members[0]
 
   return (
     <div
@@ -382,7 +434,7 @@ function SessionBar({
       onPointerUp={onPointerUp}
       onPointerCancel={() => {
         drag.current = null
-        onDragState(null)
+        onGesture(null)
       }}
       onMouseEnter={openPeek}
       onMouseLeave={closePeek}
@@ -399,30 +451,31 @@ function SessionBar({
         width: Math.round(width),
         top: LANE_PADDING,
         height: laneHeight - LANE_PADDING * 2,
-        transform: isDragging ? `translateX(${dragDx}px)` : undefined,
-        animationDelay: `${Math.min(index * 35, 350)}ms`,
-        zIndex: isDragging ? 30 : undefined,
+        animationDelay: active || nudged ? undefined : `${Math.min(index * 35, 350)}ms`,
+        zIndex: active ? 30 : undefined,
       }}
       className={cn(
-        "group absolute flex flex-col justify-center overflow-hidden rounded-xl px-3",
-        "animate-[scale-in_var(--duration-medium)_var(--ease-out-expo)_backwards]",
+        "group absolute flex flex-col overflow-hidden rounded-md",
+        !active && !nudged && "animate-[scale-in_var(--duration-medium)_var(--ease-out-expo)_backwards]",
+        // The dragged bar tracks the pointer with no easing; the ones it displaces glide,
+        // which is what makes the reflow read as deliberate rather than jittery.
+        active
+          ? "shadow-[var(--shadow-elevation-xl)] transition-none"
+          : nudged
+            ? "transition-[left,width] duration-200 ease-[var(--ease-out-expo)]"
+            : "transition-[transform,box-shadow,background-color] duration-150 ease-[var(--ease-out-quart)] hover:-translate-y-px hover:shadow-[var(--shadow-md)]",
+        canEdit && !active && "cursor-grab",
+        active && "cursor-grabbing",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] focus-visible:ring-offset-2",
-        isDragging
-          ? "cursor-grabbing shadow-[var(--shadow-elevation-xl)] scale-[1.015] transition-none"
-          : cn(
-              "transition-[transform,box-shadow,background-color] duration-150 ease-[var(--ease-out-quart)]",
-              canEdit && "cursor-grab",
-              "hover:-translate-y-px hover:shadow-[var(--shadow-md)] active:scale-[0.995]"
-            ),
         selected
-          ? "bg-primary shadow-[var(--shadow-md)] ring-1 ring-primary"
-          : "bg-[var(--color-primary-soft)]",
-        running && !selected && "ring-1 ring-primary/40",
+          ? "bg-primary ring-1 ring-primary"
+          : "bg-[var(--color-primary-soft)] ring-1 ring-inset ring-primary/25",
+        running && !selected && "ring-primary/50",
         done && "opacity-55",
         skipped && "opacity-40"
       )}
     >
-      {/* Elapsed fill. Sits behind the label and grows left to right in real time. */}
+      {/* Elapsed fill */}
       {progress > 0 && (
         <span
           aria-hidden
@@ -433,8 +486,6 @@ function SessionBar({
           style={{ width: `${progress * 100}%` }}
         />
       )}
-
-      {/* Leading edge of the fill — a bright hairline that reads as "now" inside the bar. */}
       {running && (
         <span
           aria-hidden
@@ -443,7 +494,7 @@ function SessionBar({
         />
       )}
 
-      {/* Start-edge rule — anchors the bar to the time that matters. */}
+      {/* Start-edge rule */}
       <span
         aria-hidden
         className={cn(
@@ -452,22 +503,12 @@ function SessionBar({
         )}
       />
 
-      {canEdit && width >= SHOW_TIME && (
-        <GripVertical
-          aria-hidden
-          className={cn(
-            "absolute right-1 top-1/2 size-3.5 -translate-y-1/2 opacity-0 transition-opacity duration-150",
-            "group-hover:opacity-40",
-            selected ? "text-[var(--color-primary-foreground)]" : "text-muted"
-          )}
-        />
-      )}
-
-      <div className="relative min-w-0">
+      {/* Header: name and time */}
+      <div className="relative min-w-0 px-2.5 pt-2">
         {width >= SHOW_NAME && (
           <p
             className={cn(
-              "truncate text-[13px] font-medium leading-tight",
+              "truncate text-[13px] font-semibold leading-tight tracking-[-0.01em]",
               skipped && "line-through",
               selected ? "text-[var(--color-primary-foreground)]" : "text-foreground"
             )}
@@ -475,50 +516,77 @@ function SessionBar({
             {session.name}
           </p>
         )}
-
         {width >= SHOW_TIME && (
           <p
             className={cn(
-              "mt-1 truncate text-[11px] tabular-nums leading-tight",
-              selected ? "text-[var(--color-primary-foreground)]/75" : "text-muted"
+              "mt-0.5 truncate text-[11px] tabular-nums leading-tight",
+              selected ? "text-[var(--color-primary-foreground)]/70" : "text-muted"
             )}
           >
             {format(start, "h:mm")}–{format(end, "h:mm a")}
             {session.cueCount > 0 && ` · ${session.cueCount} cue${session.cueCount > 1 ? "s" : ""}`}
           </p>
         )}
+      </div>
 
-        {/* Names in full. Initials save space but cost recognition — on a run sheet
-            you need to know it's Fola, not decode "FA". */}
-        {width >= SHOW_MEMBERS && session.members.length > 0 && (
-          <p
+      {/* People, below a rule that separates the plan from the crew. */}
+      {showPeople && (
+        <div
+          className={cn(
+            "relative mt-auto flex items-center gap-1.5 border-t px-2.5 py-1.5",
+            selected ? "border-[var(--color-primary-foreground)]/20" : "border-primary/20"
+          )}
+        >
+          <span
             className={cn(
-              "mt-1.5 truncate text-[11px] leading-tight",
+              "grid size-[18px] shrink-0 place-items-center rounded-full text-[8.5px] font-semibold",
+              selected
+                ? "bg-[var(--color-primary-foreground)] text-primary"
+                : "bg-primary/25 text-foreground"
+            )}
+          >
+            {initials(lead.name)}
+          </span>
+          <span
+            className={cn(
+              "truncate text-[11px] leading-tight",
               selected ? "text-[var(--color-primary-foreground)]/80" : "text-muted"
             )}
           >
-            {session.members
-              .slice(0, 3)
-              .map((m) => m.name)
-              .join(" · ")}
-            {session.members.length > 3 && ` +${session.members.length - 3}`}
-          </p>
-        )}
-      </div>
+            {lead.name}
+            {session.members.length > 1 && (
+              <span className="text-faint"> +{session.members.length - 1}</span>
+            )}
+          </span>
+        </div>
+      )}
 
-      {/* While dragging, show the time it would land on. */}
-      {isDragging && (
+      {/* Resize grip on the trailing edge. */}
+      {canEdit && width >= SHOW_TIME && (
         <span
-          className="absolute -top-7 left-0 rounded-md bg-[var(--color-canvas-elevated)] px-1.5 py-0.5
-                     text-[11px] font-medium tabular-nums text-foreground shadow-[var(--shadow-md)]"
+          aria-hidden
+          className="absolute inset-y-0 right-0 flex w-2.5 cursor-ew-resize items-center justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100"
         >
-          {format(
-            new Date(start + Math.round(((dragDx / hourPx) * 3_600_000) / SNAP_MS) * SNAP_MS),
-            "h:mm a"
-          )}
+          <span
+            className={cn(
+              "h-6 w-[3px] rounded-full",
+              selected ? "bg-[var(--color-primary-foreground)]/50" : "bg-primary/50"
+            )}
+          />
+        </span>
+      )}
+
+      {/* Live readout while dragging or resizing. */}
+      {active && (
+        <span className="absolute -top-7 left-0 whitespace-nowrap rounded-md bg-[var(--color-canvas-elevated)] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-foreground shadow-[var(--shadow-md)]">
+          {format(start, "h:mm")} – {format(end, "h:mm a")}
         </span>
       )}
     </div>
   )
 }
 
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/)
+  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?"
+}
