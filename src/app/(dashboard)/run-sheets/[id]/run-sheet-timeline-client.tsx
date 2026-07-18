@@ -740,7 +740,7 @@ function SessionPanel({
           </div>
 
           {session.run_sheet_session_members.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[12.5px] text-faint">
+            <p className="rounded-md border border-dashed border-border px-3 py-5 text-center text-[12.5px] text-faint">
               No one assigned yet
             </p>
           ) : (
@@ -786,7 +786,10 @@ function SessionPanel({
           )}
 
           {canEdit && available.length > 0 && (
-            <div className="flex gap-2">
+            // mt-3 separates the control from the list above it. Select's trigger is
+            // h-10 rounded-lg, so the button uses size="lg" to match it exactly rather
+            // than sitting 8px short.
+            <div className="mt-3 flex items-center gap-2">
               <Select
                 value={addingMember}
                 onChange={(v) => setAddingMember(v)}
@@ -794,7 +797,7 @@ function SessionPanel({
                 options={available.map((u) => ({ value: u.id, label: u.full_name }))}
               />
               <Button
-                size="sm"
+                size="lg"
                 variant="secondary"
                 disabled={!addingMember}
                 loading={busy}

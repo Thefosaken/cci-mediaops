@@ -34,9 +34,18 @@ const SHOW_PEOPLE = 190
 const SHOW_TIME = 100
 const SHOW_NAME = 44
 
-/** Bars are sized by content: a header block, plus a people row when there's room. */
+/**
+ * Bars are sized by content: a header block, plus one row per person listed.
+ *
+ * People stack vertically rather than collapsing to "first name +2". A run sheet is
+ * read to find out who is on, so the names are the payload — hiding all but one behind
+ * a counter defeats the point of showing any.
+ */
 const BAR_HEADER = 50
-const BAR_PEOPLE_ROW = 34
+const PERSON_ROW = 21
+const PEOPLE_PADDING = 12
+/** Beyond this the bar would dominate the lane; the rest go to the peek. */
+const MAX_PEOPLE_IN_BAR = 4
 
 const RULER_HEIGHT = 44
 const LANE_PADDING = 14
@@ -46,13 +55,21 @@ const SNAP_MS = 5 * 60_000
 const RESIZE_GRIP = 10
 const MIN_DURATION_MS = 5 * 60_000
 
+/** Rows of people a given session will show at this zoom. */
+function peopleRows(session: TrackSession, hourPx: number) {
+  const width = ((+new Date(session.end_time) - +new Date(session.start_time)) / 3_600_000) * hourPx
+  if (width < SHOW_PEOPLE || session.members.length === 0) return 0
+  return Math.min(session.members.length, MAX_PEOPLE_IN_BAR)
+}
+
+/**
+ * The lane sizes to the busiest session, so every bar shares a baseline. A lane with
+ * ragged block heights reads as broken, so the tallest requirement wins.
+ */
 export function laneHeightFor(sessions: TrackSession[], hourPx: number) {
-  const anyPeople = sessions.some(
-    (s) =>
-      s.members.length > 0 &&
-      ((+new Date(s.end_time) - +new Date(s.start_time)) / 3_600_000) * hourPx >= SHOW_PEOPLE
-  )
-  return BAR_HEADER + (anyPeople ? BAR_PEOPLE_ROW : 0) + LANE_PADDING * 2
+  const maxRows = sessions.reduce((max, s) => Math.max(max, peopleRows(s, hourPx)), 0)
+  const peopleBlock = maxRows > 0 ? maxRows * PERSON_ROW + PEOPLE_PADDING : 0
+  return BAR_HEADER + peopleBlock + LANE_PADDING * 2
 }
 
 /** What the pointer is currently doing to a session. */
@@ -294,6 +311,7 @@ export function TimelineTrack({
                 left={xFor(start)}
                 width={Math.max(((end - start) / 3_600_000) * hourPx, 6)}
                 start={start}
+                laneHeight={laneHeight}
                 end={end}
                 hourPx={hourPx}
                 index={i}
@@ -335,6 +353,7 @@ function SessionBar({
   width,
   start,
   end,
+  laneHeight,
   hourPx,
   index,
   now,
@@ -352,6 +371,7 @@ function SessionBar({
   width: number
   start: number
   end: number
+  laneHeight: number
 
   hourPx: number
   index: number
@@ -428,7 +448,6 @@ function SessionBar({
   const done = session.status === "completed"
   const skipped = session.status === "skipped"
   const showPeople = width >= SHOW_PEOPLE && session.members.length > 0
-  const lead = session.members[0]
 
   return (
     <div
@@ -458,7 +477,8 @@ function SessionBar({
         left: Math.round(left),
         width: Math.round(width),
         top: LANE_PADDING,
-        height: BAR_HEADER + (session.members.length > 0 && width >= SHOW_PEOPLE ? BAR_PEOPLE_ROW : 0),
+        // Every bar shares the lane baseline so the row stays level.
+        height: laneHeight - LANE_PADDING * 2,
         animationDelay: active || nudged ? undefined : `${Math.min(index * 35, 350)}ms`,
         zIndex: active ? 30 : undefined,
       }}
@@ -537,35 +557,43 @@ function SessionBar({
         )}
       </div>
 
-      {/* People, below a rule that separates the plan from the crew. */}
+      {/* People, below a rule that separates the plan from the crew. Stacked one per
+          row — the names are what the sheet is read for. */}
       {showPeople && (
         <div
           className={cn(
-            "relative mt-auto flex items-center gap-1.5 border-t px-2.5 py-1.5",
+            "relative mt-auto space-y-[3px] border-t px-2.5 py-1.5",
             selected ? "border-[var(--color-primary-foreground)]/20" : "border-primary/20"
           )}
         >
-          <span
-            className={cn(
-              "grid size-[18px] shrink-0 place-items-center rounded-full text-[8.5px] font-semibold",
-              selected
-                ? "bg-[var(--color-primary-foreground)] text-primary"
-                : "bg-primary/25 text-foreground"
-            )}
-          >
-            {initials(lead.name)}
-          </span>
-          <span
-            className={cn(
-              "truncate text-[11px] leading-tight",
-              selected ? "text-[var(--color-primary-foreground)]/80" : "text-muted"
-            )}
-          >
-            {lead.name}
-            {session.members.length > 1 && (
-              <span className="text-faint"> +{session.members.length - 1}</span>
-            )}
-          </span>
+          {session.members.slice(0, MAX_PEOPLE_IN_BAR).map((m) => (
+            <div key={m.id} className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  "grid size-[15px] shrink-0 place-items-center rounded-full text-[7.5px] font-semibold",
+                  selected
+                    ? "bg-[var(--color-primary-foreground)] text-primary"
+                    : "bg-primary/25 text-foreground"
+                )}
+              >
+                {initials(m.name)}
+              </span>
+              <span
+                className={cn(
+                  "truncate text-[11px] leading-tight",
+                  selected ? "text-[var(--color-primary-foreground)]/80" : "text-muted"
+                )}
+              >
+                {m.name}
+              </span>
+            </div>
+          ))}
+
+          {session.members.length > MAX_PEOPLE_IN_BAR && (
+            <span className="block pl-[21px] text-[10.5px] text-faint">
+              +{session.members.length - MAX_PEOPLE_IN_BAR} more
+            </span>
+          )}
         </div>
       )}
 

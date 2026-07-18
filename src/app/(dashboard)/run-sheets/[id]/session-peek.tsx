@@ -83,10 +83,25 @@ export function SessionPeek({
         </ul>
       )}
 
+      {/* Stacked, matching the bar. A run-together list of names is hard to count and
+          hard to scan for your own. */}
       {session.members.length > 0 && (
-        <p className="mt-2.5 border-t border-border-subtle pt-2.5 text-[11.5px] leading-snug text-muted">
-          {session.members.map((m) => m.name).join(" · ")}
-        </p>
+        <ul className="mt-2.5 space-y-1.5 border-t border-border-subtle pt-2.5">
+          {session.members.map((m) => (
+            <li key={m.id} className="flex items-center gap-2">
+              <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-[var(--color-primary-soft)] text-[8.5px] font-semibold text-foreground">
+                {m.name
+                  .trim()
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((p) => p[0])
+                  .join("")
+                  .toUpperCase()}
+              </span>
+              <span className="truncate text-[11.5px] leading-snug text-foreground">{m.name}</span>
+            </li>
+          ))}
+        </ul>
       )}
 
       {filled.length === 0 && session.members.length === 0 && (
