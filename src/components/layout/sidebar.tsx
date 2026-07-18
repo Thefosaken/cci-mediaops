@@ -14,7 +14,9 @@ import { Logo } from "@/components/ui/logo"
 import { Kbd } from "@/components/ui/kbd"
 import { useSidebarCollapsed } from "@/lib/hooks/use-sidebar-collapsed"
 import { createClient } from "@/lib/supabase/client"
+import { hasPermission } from "@/lib/permissions"
 import type { ShellCounts } from "@/server/queries/shell"
+import type { UserRole } from "@/types"
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutDashboard, Calendar, Inbox, CalendarCheck, ScrollText,
@@ -24,7 +26,20 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 const PRIMARY_NAV = ["/dashboard", "/calendar", "/requests", "/scheduling", "/run-sheets"]
 const MANAGE_NAV = ["/sub-teams", "/equipment", "/approvals", "/incidents", "/reports", "/settings"]
 
-// Map nav href → which count surfaces as a badge
+const HREF_TO_RESOURCE: Record<string, string> = {
+  "/dashboard": "system",
+  "/calendar": "events",
+  "/requests": "requests",
+  "/scheduling": "schedules",
+  "/run-sheets": "run_sheets",
+  "/sub-teams": "sub_teams",
+  "/equipment": "equipment",
+  "/approvals": "approvals",
+  "/incidents": "incidents",
+  "/reports": "reports",
+  "/settings": "system",
+}
+
 function countForHref(href: string, counts?: ShellCounts): number {
   if (!counts) return 0
   switch (href) {
@@ -44,9 +59,10 @@ interface SidebarProps {
   onCommandOpen: () => void
   counts?: ShellCounts
   campusName?: string
+  userRole?: UserRole
 }
 
-export function Sidebar({ onClose, onCommandOpen, counts, campusName }: SidebarProps) {
+export function Sidebar({ onClose, onCommandOpen, counts, campusName, userRole }: SidebarProps) {
   const pathname = usePathname()
   const { collapsed, toggle } = useSidebarCollapsed()
 
@@ -56,8 +72,15 @@ export function Sidebar({ onClose, onCommandOpen, counts, campusName }: SidebarP
     window.location.href = "/login"
   }
 
-  const primaryItems = NAV_ITEMS.filter((i) => PRIMARY_NAV.includes(i.href))
-  const manageItems = NAV_ITEMS.filter((i) => MANAGE_NAV.includes(i.href))
+  function canView(href: string): boolean {
+    if (!userRole) return true
+    const resource = HREF_TO_RESOURCE[href]
+    if (!resource) return true
+    return hasPermission(userRole, resource, "view")
+  }
+
+  const primaryItems = NAV_ITEMS.filter((i) => PRIMARY_NAV.includes(i.href) && canView(i.href))
+  const manageItems = NAV_ITEMS.filter((i) => MANAGE_NAV.includes(i.href) && canView(i.href))
 
   function NavLink({ item }: { item: (typeof NAV_ITEMS)[number] }) {
     const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
@@ -168,7 +191,7 @@ export function Sidebar({ onClose, onCommandOpen, counts, campusName }: SidebarP
           <button
             type="button"
             onClick={onCommandOpen}
-            title="Search (⌘K)"
+            title="Search (\u2318K)"
             aria-label="Search"
             className="flex items-center justify-center h-8 w-8 mx-auto rounded-md text-faint hover:text-foreground hover:bg-surface-subtle transition-colors"
           >
@@ -185,8 +208,8 @@ export function Sidebar({ onClose, onCommandOpen, counts, campusName }: SidebarP
             )}
           >
             <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span className="flex-1 text-left">Search…</span>
-            <Kbd size="sm">⌘K</Kbd>
+            <span className="flex-1 text-left">Search\u2026</span>
+            <Kbd size="sm">\u2318K</Kbd>
           </button>
         )}
       </div>
@@ -199,25 +222,28 @@ export function Sidebar({ onClose, onCommandOpen, counts, campusName }: SidebarP
           ))}
         </div>
 
-        {!collapsed && (
-          <div className="px-3 pt-5 pb-1.5">
-            <span className="text-[10px] font-semibold text-faint uppercase tracking-wider">
-              Manage
-            </span>
-          </div>
-        )}
-        {collapsed && <div className="my-3 mx-3 h-px bg-border" aria-hidden="true" />}
+        {manageItems.length > 0 && (
+          <>
+            {!collapsed && (
+              <div className="px-3 pt-5 pb-1.5">
+                <span className="text-[10px] font-semibold text-faint uppercase tracking-wider">
+                  Manage
+                </span>
+              </div>
+            )}
+            {collapsed && <div className="my-3 mx-3 h-px bg-border" aria-hidden="true" />}
 
-        <div className={cn("space-y-0.5", collapsed ? "px-2" : "px-2")}>
-          {manageItems.map((item) => (
-            <NavLink key={item.href} item={item} />
-          ))}
-        </div>
+            <div className={cn("space-y-0.5", collapsed ? "px-2" : "px-2")}>
+              {manageItems.map((item) => (
+                <NavLink key={item.href} item={item} />
+              ))}
+            </div>
+          </>
+        )}
       </nav>
 
-      {/* Footer: new request shortcut + sign out + collapse */}
+      {/* Footer */}
       <div className={cn("border-t border-border shrink-0", collapsed ? "px-2 py-2 space-y-1" : "p-2 space-y-1")}>
-        {/* Sign out */}
         <button
           type="button"
           onClick={signOut}

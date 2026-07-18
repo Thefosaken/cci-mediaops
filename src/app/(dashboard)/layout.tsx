@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth/auth-helpers"
 import { getShellCounts, getRecentNotifications } from "@/server/queries/shell"
 import { createClient } from "@/lib/supabase/server"
 import { ROLE_LABELS } from "@/constants"
+import type { UserRole } from "@/types"
 
 export const dynamic = "force-dynamic"
 
@@ -27,7 +28,7 @@ export default async function DashboardLayout({
       .then((r) => r.data),
   ])
 
-  const rawRole = (membership as unknown as { roles?: { name?: string } } | null)?.roles?.name
+  const rawRole = (membership as unknown as { roles?: { name?: string } } | null)?.roles?.name as UserRole | undefined
   const roleLabel = rawRole ? (ROLE_LABELS[rawRole] ?? rawRole) : null
   const campusName = (membership as unknown as { campuses?: { name?: string } } | null)?.campuses?.name
 
@@ -38,6 +39,7 @@ export default async function DashboardLayout({
       userId={user.id}
       userName={user.full_name}
       userEmail={user.email}
+      userRole={rawRole}
       userRoleLabel={roleLabel}
       campusName={campusName}
     >

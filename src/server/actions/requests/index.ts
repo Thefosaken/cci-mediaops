@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { requestSchema } from "@/lib/validators"
 import type { RequestInput } from "@/lib/validators"
 import { revalidatePath } from "next/cache"
+import { notifyNewRequest } from "./notify"
 
 export async function submitRequest(input: RequestInput) {
   const parsed = requestSchema.safeParse(input)
@@ -37,6 +38,8 @@ export async function submitRequest(input: RequestInput) {
     }))
     await supabase.from("request_sub_teams").insert(subTeamRecords)
   }
+
+  await notifyNewRequest(request.id, request.title, parsed.data.subTeamIds)
 
   revalidatePath("/requests")
   return { data: request }

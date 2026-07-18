@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { publicRequestSchema } from "@/lib/validators"
 import type { PublicRequestInput } from "@/lib/validators"
+import { notifyNewRequest } from "@/server/actions/requests/notify"
 import crypto from "crypto"
 
 function generateTrackingId(): string {
@@ -106,6 +107,8 @@ export async function submitPublicRequest(
       console.error("Failed to assign sub-teams:", subTeamError.message)
     }
   }
+
+  await notifyNewRequest(request.id, request.title, selectedSubTeamIds)
 
   await admin.rpc("increment_public_link_count" as never, { link_id: link.id } as never)
 

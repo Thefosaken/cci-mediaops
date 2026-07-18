@@ -7,6 +7,7 @@ import { CommandPalette, useCommandPaletteShortcut } from "./command-palette"
 import { ToastProvider } from "@/lib/toast/toast-context"
 import { cn } from "@/lib/utils/cn"
 import type { ShellCounts, ShellNotification } from "@/server/queries/shell"
+import type { UserRole } from "@/types"
 
 interface ShellProps {
   children: React.ReactNode
@@ -15,6 +16,7 @@ interface ShellProps {
   userId: string | null
   userName: string | null
   userEmail: string | null
+  userRole?: UserRole
   userRoleLabel?: string | null
   campusName?: string
 }
@@ -26,6 +28,7 @@ export function Shell({
   userId,
   userName,
   userEmail,
+  userRole,
   userRoleLabel,
   campusName,
 }: ShellProps) {
@@ -46,6 +49,7 @@ export function Shell({
             onCommandOpen={openCommand}
             counts={counts}
             campusName={campusName}
+            userRole={userRole}
           />
         </div>
 
@@ -69,6 +73,7 @@ export function Shell({
             onCommandOpen={() => { openCommand(); setSidebarOpen(false) }}
             counts={counts}
             campusName={campusName}
+            userRole={userRole}
           />
         </div>
 

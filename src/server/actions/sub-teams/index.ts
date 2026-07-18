@@ -5,6 +5,25 @@ import { revalidatePath } from "next/cache"
 
 export async function createSubTeam(data: { campusId: string; name: string; description?: string }) {
   const supabase = await createClient()
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  if (!authUser) return { error: "Not authenticated" }
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("id")
+    .eq("auth_user_id", authUser.id)
+    .single()
+  if (!profile) return { error: "User not found" }
+
+  const { data: membership } = await supabase
+    .from("campus_memberships")
+    .select("roles(name)")
+    .eq("user_id", profile.id)
+    .eq("status", "active")
+    .maybeSingle()
+  const role = (membership as unknown as { roles?: { name?: string } } | null)?.roles?.name
+  if (role !== "super_admin") return { error: "Only super admins can create sub-teams." }
+
   const { error } = await supabase.from("sub_teams").insert({
     campus_id: data.campusId,
     name: data.name,

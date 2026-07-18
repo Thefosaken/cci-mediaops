@@ -1,4 +1,4 @@
-export type UserRole = "super_admin" | "media_admin" | "sub_team_lead" | "assistant_lead" | "team_member" | "requester" | "approver"
+export type UserRole = "super_admin" | "media_admin" | "sub_team_lead" | "assistant_lead" | "team_member" | "requester"
 
 export type UserStatus = "pending" | "active" | "inactive" | "suspended"
 

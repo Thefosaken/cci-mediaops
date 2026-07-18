@@ -90,7 +90,6 @@ export const ROLE_LABELS: Record<string, string> = {
   assistant_lead: "Assistant Lead",
   team_member: "Team Member",
   requester: "Requester",
-  approver: "Approver",
 }
 
 export const REQUESTING_UNITS = [
