@@ -81,6 +81,7 @@ export function TimelineTrack({
   hourCount: number
   hourPx: number
   laneHeight: number
+
   canEdit: boolean
   selectedId: string | null
   onSelect: (id: string) => void
@@ -186,8 +187,14 @@ export function TimelineTrack({
   }
 
   return (
-    <div className="flex-1 overflow-auto overscroll-x-contain" style={{ scrollbarGutter: "stable" }}>
-      <div style={{ width, minWidth: "100%" }} className="relative select-none">
+    <div
+      className="flex flex-1 flex-col overflow-auto overscroll-x-contain"
+      style={{ scrollbarGutter: "stable" }}
+    >
+      <div
+        style={{ width, minWidth: "100%" }}
+        className="relative flex min-h-full flex-col select-none"
+      >
         {/* ── Ruler ─────────────────────────────────────────────── */}
         <div
           className="sticky top-0 z-20 flex border-b border-border bg-canvas/80 backdrop-blur-md"
@@ -205,10 +212,13 @@ export function TimelineTrack({
         </div>
 
         {/* ── Lane ──────────────────────────────────────────────── */}
+        {/* The lane stretches to fill the card. Bars keep their content height at the
+            top; the space beneath stays live track, so the whole card is somewhere you
+            can draw a session rather than dead area. */}
         <div
           ref={trackRef}
-          className={cn("relative", canEdit && !gesture && "cursor-crosshair")}
-          style={{ height: laneHeight }}
+          className={cn("relative flex-1", canEdit && !gesture && "cursor-crosshair")}
+          style={{ minHeight: laneHeight }}
           onPointerDown={(e) => {
             if (!canEdit || !trackRef.current) return
             if ((e.target as HTMLElement).closest("[data-session-bar]")) return
@@ -260,7 +270,7 @@ export function TimelineTrack({
                 left: Math.round(xFor(Math.min(drawing.fromMs, drawing.toMs))),
                 width: Math.max((Math.abs(drawing.toMs - drawing.fromMs) / 3_600_000) * hourPx, 2),
                 top: LANE_PADDING,
-                height: laneHeight - LANE_PADDING * 2,
+                height: BAR_HEADER + LANE_PADDING,
               }}
             >
               <span className="whitespace-nowrap px-2 text-[11px] font-medium tabular-nums text-primary">
@@ -285,7 +295,6 @@ export function TimelineTrack({
                 width={Math.max(((end - start) / 3_600_000) * hourPx, 6)}
                 start={start}
                 end={end}
-                laneHeight={laneHeight}
                 hourPx={hourPx}
                 index={i}
                 now={now}
@@ -326,7 +335,6 @@ function SessionBar({
   width,
   start,
   end,
-  laneHeight,
   hourPx,
   index,
   now,
@@ -344,7 +352,7 @@ function SessionBar({
   width: number
   start: number
   end: number
-  laneHeight: number
+
   hourPx: number
   index: number
   now: number
@@ -450,7 +458,7 @@ function SessionBar({
         left: Math.round(left),
         width: Math.round(width),
         top: LANE_PADDING,
-        height: laneHeight - LANE_PADDING * 2,
+        height: BAR_HEADER + (session.members.length > 0 && width >= SHOW_PEOPLE ? BAR_PEOPLE_ROW : 0),
         animationDelay: active || nudged ? undefined : `${Math.min(index * 35, 350)}ms`,
         zIndex: active ? 30 : undefined,
       }}

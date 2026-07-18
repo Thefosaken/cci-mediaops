@@ -2,8 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { format } from "date-fns"
-import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play } from "lucide-react"
+import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play, ChevronLeft } from "lucide-react"
 
 import { useToast } from "@/lib/toast/toast-context"
 import { cn } from "@/lib/utils/cn"
@@ -33,7 +34,7 @@ import { Modal } from "@/components/ui/modal"
 import { SidePanel } from "@/components/ui/side-panel"
 import { FormField } from "@/components/ui/form-field"
 import { Select } from "@/components/ui/select"
-import { TimeField } from "@/components/ui/time-field"
+import { SessionTimeFields } from "@/components/ui/time-field"
 import { Badge } from "@/components/ui/badge"
 
 /**
@@ -133,7 +134,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
    * row only when a bar is wide enough to list people. The card still fills the page;
    * the lane sits at the top of it rather than stretching to fill.
    */
-  const laneHeight = useMemo(() => laneHeightFor(trackSessions, hourPx), [trackSessions, hourPx])
+  const contentLane = useMemo(() => laneHeightFor(trackSessions, hourPx), [trackSessions, hourPx])
 
   /** Cues for whichever session is being peeked, resolved to sub-team names. */
   const peekCues = useMemo(() => {
@@ -241,7 +242,20 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
     // h-dvh minus the app header: makes the calendar own the viewport rather than
     // sitting in a short strip with dead space beneath it.
     <div className="flex h-[calc(100dvh-var(--app-header-h,57px))] flex-col">
+      {/* Explicit way back. The breadcrumb now links too, but on a detail page the
+          return path should be visible where the eye already is. */}
+      <div className="shrink-0 border-b border-border bg-canvas px-5 pt-4 sm:px-6">
+        <Link
+          href="/run-sheets"
+          className="inline-flex items-center gap-1 text-[12px] text-muted transition-colors hover:text-foreground"
+        >
+          <ChevronLeft className="size-3.5" />
+          All run sheets
+        </Link>
+      </div>
+
       <PageHeader
+        className="border-b-0 pt-2.5"
         title={sheet.title}
         description={
           sheet.events?.title ??
@@ -345,7 +359,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
               windowStart={windowStart}
               hourCount={hourCount}
               hourPx={hourPx}
-              laneHeight={laneHeight}
+              laneHeight={contentLane}
               canEdit={canEdit}
               selectedId={openSessionId}
               onSelect={setOpenSessionId}
@@ -457,11 +471,6 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
 
 /* ────────────────────────────────────────────────────────────── */
 
-function toLocalInput(d: Date) {
-  // datetime-local wants "YYYY-MM-DDTHH:mm" in local time, which toISOString would shift.
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 function CreateSessionModal({
   at,
@@ -477,28 +486,24 @@ function CreateSessionModal({
   const [name, setName] = useState("")
   // Prefilled from the span drawn on the track, so the form confirms what you drew
   // rather than making you re-enter it.
-  const [start, setStart] = useState(toLocalInput(at.start))
-  const [end, setEnd] = useState(toLocalInput(at.end))
-
-  const invalid = !name.trim() || new Date(end) <= new Date(start)
+  const [span, setSpan] = useState({ start: at.start, end: at.end })
 
   return (
     <Modal
       open
       onClose={onClose}
       title="Add session"
-      description="Only the name and times are required."
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button
             loading={busy}
-            disabled={invalid}
+            disabled={!name.trim()}
             onClick={() =>
               onSubmit({
                 name: name.trim(),
-                startTime: new Date(start).toISOString(),
-                endTime: new Date(end).toISOString(),
+                startTime: span.start.toISOString(),
+                endTime: span.end.toISOString(),
               })
             }
           >
@@ -507,23 +512,20 @@ function CreateSessionModal({
         </>
       }
     >
-      <div className="space-y-4">
+      <div className="space-y-5">
         <FormField label="Session name" required>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Opening Prayer" autoFocus />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Opening Prayer"
+            autoFocus
+          />
         </FormField>
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Start" required>
-            <Input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
-          </FormField>
-          <FormField label="End" required>
-            <Input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
-          </FormField>
-        </div>
-        {new Date(end) <= new Date(start) && (
-          <p className="text-[12px] text-danger">End time must be after start time.</p>
-        )}
-        <p className="text-[12px] text-muted">
-          Cues for each unit are created automatically and can be filled in after.
+
+        <SessionTimeFields start={span.start} end={span.end} onChange={setSpan} />
+
+        <p className="border-t border-border-subtle pt-3.5 text-[12px] leading-relaxed text-muted">
+          A cue field is created for each of your units. Add cues and people after.
         </p>
       </div>
     </Modal>
@@ -616,7 +618,6 @@ function SessionPanel({
 
   const timesChanged =
     start.toISOString() !== session.start_time || end.toISOString() !== session.end_time
-  const timesValid = +end > +start
   const durationMins = Math.round((+end - +start) / 60_000)
 
   const assignedIds = new Set(session.run_sheet_session_members.map((m) => m.user_id))
@@ -649,22 +650,17 @@ function SessionPanel({
 
           {canEdit ? (
             <>
-              <div className="grid grid-cols-2 gap-2.5">
-                <FormField label="Starts">
-                  <TimeField value={start} onChange={setStart} aria-label="Start time" />
-                </FormField>
-                <FormField label="Ends">
-                  {/* Annotated with duration, so picking an end time is picking a length. */}
-                  <TimeField value={end} onChange={setEnd} relativeTo={start} aria-label="End time" />
-                </FormField>
-              </div>
+              <SessionTimeFields
+                start={start}
+                end={end}
+                onChange={({ start: s, end: e }) => {
+                  setStart(s)
+                  setEnd(e)
+                }}
+              />
 
-              {!timesValid && (
-                <p className="mt-2.5 text-[12px] text-danger">End time must be after the start.</p>
-              )}
-
-              {timesChanged && timesValid && (
-                <div className="mt-3 flex items-center gap-2">
+              {timesChanged && (
+                <div className="mt-3.5 flex items-center gap-2">
                   <Button
                     size="sm"
                     loading={busy}

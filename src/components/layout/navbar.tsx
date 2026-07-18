@@ -27,6 +27,10 @@ function Breadcrumb({ pathname }: { pathname: string }) {
   const current = NAV_ITEMS.find(
     (item) => pathname === item.href || pathname.startsWith(item.href + "/")
   )
+  // On a detail route the section name is the way back to its list, so it has to be a
+  // link. As plain text it looked like navigation and did nothing.
+  const onDetailRoute = Boolean(current && pathname !== current.href)
+
   return (
     <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[13px] min-w-0">
       <Link
@@ -36,9 +40,18 @@ function Breadcrumb({ pathname }: { pathname: string }) {
         CCI
       </Link>
       <ChevronRight className="h-3 w-3 text-faint hidden sm:inline shrink-0" aria-hidden="true" />
-      <span className="font-medium text-foreground truncate">
-        {current?.label ?? "Dashboard"}
-      </span>
+      {onDetailRoute ? (
+        <Link
+          href={current!.href}
+          className="font-medium text-muted hover:text-foreground transition-colors truncate"
+        >
+          {current!.label}
+        </Link>
+      ) : (
+        <span className="font-medium text-foreground truncate">
+          {current?.label ?? "Dashboard"}
+        </span>
+      )}
     </nav>
   )
 }
