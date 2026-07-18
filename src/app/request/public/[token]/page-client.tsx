@@ -1,14 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { format } from "date-fns"
 import { Inbox, CheckCircle2, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
-import { DateInput } from "@/components/ui/date-input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { FormField } from "@/components/ui/form-field"
-import { PRIORITIES } from "@/constants"
+import { PRIORITIES, REQUESTING_UNITS } from "@/constants"
 import { submitPublicRequest } from "@/server/actions/public-requests"
 import type { PublicRequestInput } from "@/lib/validators"
 
@@ -27,24 +27,23 @@ const EMPTY_FORM: PublicRequestInput = {
 }
 
 export function PublicRequestForm({ token }: { token: string }) {
-  const router = useRouter()
   const [submitted, setSubmitted] = useState(false)
   const [trackingId, setTrackingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [subTeams, setSubTeams] = useState<SubTeamOption[]>([])
   const [form, setForm] = useState(EMPTY_FORM)
+  const [unitCustom, setUnitCustom] = useState(false)
+  const dateFilled = format(new Date(), "MMM d, yyyy")
 
   useEffect(() => {
     async function load() {
-      const { getPublicLinkByToken } = await import("@/server/actions/public-requests")
-      const link = await getPublicLinkByToken(token)
-      if (link?.sub_teams) {
-        setSubTeams(link.sub_teams)
-      }
+      const { getActiveSubTeams } = await import("@/server/actions/public-requests")
+      const teams = await getActiveSubTeams()
+      setSubTeams(teams)
     }
     load()
-  }, [token])
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -171,13 +170,35 @@ export function PublicRequestForm({ token }: { token: string }) {
                 />
               </FormField>
               <FormField label="Department / Unit" required>
-                <Input
-                  value={form.requestingUnit}
-                  onChange={(e) => setForm({ ...form, requestingUnit: e.target.value })}
-                  placeholder="e.g. Teens Church"
-                  required
+                <Select
+                  value={unitCustom ? "Others" : form.requestingUnit}
+                  onChange={(v) => {
+                    if (v === "Others") {
+                      setUnitCustom(true)
+                      setForm({ ...form, requestingUnit: "" })
+                    } else {
+                      setUnitCustom(false)
+                      setForm({ ...form, requestingUnit: v })
+                    }
+                  }}
+                  options={[
+                    { value: "", label: "Select a unit…" },
+                    ...REQUESTING_UNITS.map((u) => ({ value: u, label: u })),
+                    { value: "Others", label: "Others (type in)" },
+                  ]}
                 />
               </FormField>
+              {unitCustom && (
+                <FormField label="Specify unit" required>
+                  <Input
+                    value={form.requestingUnit}
+                    onChange={(e) => setForm({ ...form, requestingUnit: e.target.value })}
+                    placeholder="Type your unit name"
+                    required
+                    autoFocus
+                  />
+                </FormField>
+              )}
               <FormField label="Priority">
                 <Select
                   value={form.priority}
@@ -185,11 +206,14 @@ export function PublicRequestForm({ token }: { token: string }) {
                   options={PRIORITIES.map((p) => ({ value: p.value, label: p.label }))}
                 />
               </FormField>
+              <FormField label="Date filled">
+                <Input value={dateFilled} readOnly className="text-muted" tabIndex={-1} />
+              </FormField>
               <FormField label="Deadline" helper="When do you need this by?">
-                <DateInput
-                  type="date"
+                <DatePicker
                   value={form.deadline}
-                  onChange={(e) => setForm({ ...form, deadline: e.target.value })}
+                  onChange={(v) => setForm({ ...form, deadline: v })}
+                  placeholder="Select deadline"
                 />
               </FormField>
             </div>

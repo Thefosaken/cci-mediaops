@@ -10,7 +10,7 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/lib/toast/toast-context"
 import { useUrlState } from "@/lib/hooks/use-url-state"
-import { PRIORITIES } from "@/constants"
+import { PRIORITIES, REQUESTING_UNITS } from "@/constants"
 import { cn } from "@/lib/utils/cn"
 type SubTeamLite = { id: string; name: string }
 
@@ -22,7 +22,7 @@ import { Modal } from "@/components/ui/modal"
 import { SidePanel } from "@/components/ui/side-panel"
 import { Select } from "@/components/ui/select"
 import { Combobox } from "@/components/ui/combobox"
-import { DateInput } from "@/components/ui/date-input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -112,6 +112,8 @@ export function RequestsPageClient({
 
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [unitCustom, setUnitCustom] = useState(false)
+  const dateFilled = format(new Date(), "MMM d, yyyy")
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (showNew) setForm(EMPTY_FORM) }, [showNew])
@@ -378,9 +380,35 @@ export function RequestsPageClient({
                 placeholder="e.g. Sunday recap video edit" required autoFocus />
             </FormField>
             <FormField label="Requesting unit" required>
-              <Input value={form.requestingUnit} onChange={(e) => setForm({ ...form, requestingUnit: e.target.value })}
-                placeholder="e.g. Teens Church" required />
+              <Select
+                value={unitCustom ? "Others" : form.requestingUnit}
+                onChange={(v) => {
+                  if (v === "Others") {
+                    setUnitCustom(true)
+                    setForm({ ...form, requestingUnit: "" })
+                  } else {
+                    setUnitCustom(false)
+                    setForm({ ...form, requestingUnit: v })
+                  }
+                }}
+                options={[
+                  { value: "", label: "Select a unit…" },
+                  ...REQUESTING_UNITS.map((u) => ({ value: u, label: u })),
+                  { value: "Others", label: "Others (type in)" },
+                ]}
+              />
             </FormField>
+            {unitCustom && (
+              <FormField label="Specify unit" required>
+                <Input
+                  value={form.requestingUnit}
+                  onChange={(e) => setForm({ ...form, requestingUnit: e.target.value })}
+                  placeholder="Type your unit name"
+                  required
+                  autoFocus
+                />
+              </FormField>
+            )}
             <FormField label="Priority">
               <Select value={form.priority} onChange={(v) => setForm({ ...form, priority: v })}
                 options={PRIORITIES.map((p) => ({ value: p.value, label: p.label }))} />
@@ -393,9 +421,15 @@ export function RequestsPageClient({
                 searchable={events.length > 6}
               />
             </FormField>
+            <FormField label="Date filled">
+              <Input value={dateFilled} readOnly className="text-muted" tabIndex={-1} />
+            </FormField>
             <FormField label="Deadline" helper="Optional target date">
-              <DateInput type="date" value={form.deadline}
-                onChange={(e) => setForm({ ...form, deadline: e.target.value })} />
+              <DatePicker
+                value={form.deadline}
+                onChange={(v) => setForm({ ...form, deadline: v })}
+                placeholder="Select deadline"
+              />
             </FormField>
             <FormField label="Route to sub-teams" required helper="Pick one or more" className="sm:col-span-2">
               <Combobox values={form.subTeamIds}

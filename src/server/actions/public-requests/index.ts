@@ -36,15 +36,21 @@ export async function getPublicLinkByToken(token: string) {
   if (!link.is_active) return null
   if (link.expires_at && new Date(link.expires_at) < new Date()) return null
 
-  const { data: subTeams } = await admin
-    .from("sub_teams" as never)
-    .select("id, name")
-    .in("id", link.sub_team_ids)
-
   return {
     ...link,
-    sub_teams: (subTeams as unknown as { id: string; name: string }[]) ?? [],
+    sub_teams: [],
   }
+}
+
+export async function getActiveSubTeams() {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from("sub_teams" as never)
+    .select("id, name")
+    .eq("status", "active")
+    .order("name")
+
+  return (data as unknown as { id: string; name: string }[]) ?? []
 }
 
 export type PublicLinkWithTeams = Awaited<ReturnType<typeof getPublicLinkByToken>>
@@ -64,7 +70,8 @@ export async function submitPublicRequest(
   if (!link) return { error: "Invalid or expired link" }
 
   const selectedSubTeamId = parsed.data.subTeamId
-  const isValidTeam = selectedSubTeamId && link.sub_team_ids.includes(selectedSubTeamId)
+  const allTeams = await getActiveSubTeams()
+  const isValidTeam = selectedSubTeamId && allTeams.some((t) => t.id === selectedSubTeamId)
   if (!isValidTeam) return { error: "Please select a valid sub-team." }
 
   const trackingId = generateTrackingId()

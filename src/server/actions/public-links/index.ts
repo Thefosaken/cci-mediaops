@@ -14,10 +14,12 @@ function generateToken(): string {
   return result
 }
 
-export async function generatePublicLink(input: {
-  label: string
+const DEFAULT_LINK_LABEL = "Media Team Request Link"
+
+export async function generatePublicLink(input?: {
+  label?: string
 }) {
-  if (!input.label.trim()) return { error: "Label is required" }
+  const label = input?.label?.trim() || DEFAULT_LINK_LABEL
 
   const supabase = await createClient()
   const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -51,7 +53,7 @@ export async function generatePublicLink(input: {
       sub_team_ids: subTeamIds,
       created_by: profile.id,
       token: generateToken(),
-      label: input.label.trim(),
+      label,
       is_active: true,
     })
     .select()

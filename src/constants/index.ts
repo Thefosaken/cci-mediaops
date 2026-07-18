@@ -93,6 +93,26 @@ export const ROLE_LABELS: Record<string, string> = {
   approver: "Approver",
 }
 
+export const REQUESTING_UNITS = [
+  "Videography",
+  "Sound",
+  "Social Media",
+  "Projection",
+  "Production",
+  "Programs",
+  "Photography",
+  "Light",
+  "Design",
+  "Celeb Teens",
+  "Celeb Kids",
+  "Ambience",
+  "Follow-up",
+  "Comms",
+  "CCW",
+  "Protocol",
+  "Pastor's Office",
+] as const
+
 export const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
   { href: "/calendar", label: "Calendar", icon: "Calendar" },
