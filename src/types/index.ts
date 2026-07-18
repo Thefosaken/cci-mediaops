@@ -51,6 +51,9 @@ export type RunSheetStatus = "draft" | "confirmed" | "live" | "completed"
 
 export type SegmentStatus = "upcoming" | "active" | "completed" | "skipped"
 
+/** Sessions carry the same lifecycle as the segments they replace. */
+export type SessionStatus = SegmentStatus
+
 export type ConditionStatus = "good" | "fair" | "faulty" | "missing" | "under_repair"
 
 export type AvailabilityStatus = "available" | "assigned" | "checked_out" | "checked_in" | "unavailable"
@@ -155,22 +158,6 @@ export interface EventSubTeam {
   sub_team_id: string
 }
 
-export interface ScheduleSlot {
-  id: string
-  event_id: string
-  sub_team_id: string
-  role_title: string
-  assigned_user_id: string | null
-  call_time: string | null
-  start_time: string | null
-  end_time: string | null
-  confirmation_status: ConfirmationStatus
-  attendance_status: AttendanceStatus | null
-  notes: string | null
-  created_by: string
-  created_at: string
-  updated_at: string
-}
 
 export interface PublicRequestLink {
   id: string
@@ -234,30 +221,75 @@ export interface Task {
 
 export interface RunSheet {
   id: string
-  event_id: string
+  /** Null for standalone sheets and templates — a run sheet no longer requires an event. */
+  event_id: string | null
+  campus_id: string
   title: string
   status: RunSheetStatus
+  is_template: boolean
+  /** The sheet or template this one was duplicated from, if any. */
+  template_source_id: string | null
+  /** Anchors the timeline columns when there is no event to inherit a date from. */
+  sheet_date: string | null
   created_by: string
   created_at: string
   updated_at: string
 }
 
-export interface RunSheetSegment {
+
+/**
+ * A session on a run sheet timeline.
+ *
+ * Times are half-open intervals [start_time, end_time): a session ending 08:30 and one
+ * starting 08:30 do not overlap.
+ *
+ * start_time and end_time are nullable *as a pair*. Both set = placed on the timeline;
+ * both null = parked in the "needs times" tray. A DB check constraint makes any other
+ * combination impossible, so `session.start_time !== null` is enough to narrow both.
+ */
+export interface RunSheetSession {
   id: string
   run_sheet_id: string
-  sequence_order: number
-  title: string
-  segment_type: string
-  planned_start_time: string | null
-  estimated_duration_minutes: number | null
-  owner_name: string | null
-  projection_cue: string | null
-  sound_cue: string | null
-  lighting_cue: string | null
-  camera_cue: string | null
-  social_media_cue: string | null
+  name: string
+  start_time: string | null
+  end_time: string | null
+  session_type: string | null
   notes: string | null
-  status: SegmentStatus
+  status: SessionStatus
+  created_at: string
+  updated_at: string
+}
+
+/** A session with confirmed times — the shape the timeline renderer works with. */
+export type PlacedSession = RunSheetSession & {
+  start_time: string
+  end_time: string
+}
+
+export function isPlaced(session: RunSheetSession): session is PlacedSession {
+  return session.start_time !== null && session.end_time !== null
+}
+
+export interface RunSheetSessionCue {
+  id: string
+  session_id: string
+  sub_team_id: string
+  cue_text: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RunSheetSessionMember {
+  id: string
+  session_id: string
+  /** Null when a role is rostered but nobody is assigned to it yet. */
+  user_id: string | null
+  sub_team_id: string | null
+  role_title: string | null
+  call_time: string | null
+  confirmation_status: ConfirmationStatus
+  attendance_status: AttendanceStatus | null
+  notes: string | null
   created_at: string
   updated_at: string
 }

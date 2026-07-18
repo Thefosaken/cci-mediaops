@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
-import type { Event, Request, ScheduleSlot, Task, EquipmentItem, Incident, Notification } from "@/types"
+import type { Event, Request, Task, EquipmentItem, Incident, Notification } from "@/types"
 
 export async function getUpcomingEvents(limit = 10) {
   const supabase = await createClient()
@@ -22,18 +22,57 @@ export async function getPendingRequests() {
   return (data ?? []) as Request[]
 }
 
-export async function getUnconfirmedAssignments(subTeamId?: string) {
+/** One row of "your assignments" — a session you are on, awaiting your confirmation. */
+export interface MyAssignment {
+  id: string
+  role_title: string | null
+  call_time: string | null
+  session_name: string
+  session_start: string | null
+  run_sheet_title: string
+}
+
+/**
+ * Sessions this user is rostered on and has not yet responded to.
+ *
+ * Replaces the old schedule_slots read. Two differences worth noting: the filter by user
+ * happens in the query rather than in the page (the dashboard used to fetch every
+ * unconfirmed assignment on the campus and discard most of them), and the label now
+ * comes from the session and its run sheet rather than an event, since a run sheet no
+ * longer requires one.
+ */
+export async function getMyAssignments(userId: string, limit = 5): Promise<MyAssignment[]> {
   const supabase = await createClient()
-  let query = supabase
-    .from("schedule_slots")
-    .select("*, events!inner(*)")
+  const { data } = await supabase
+    .from("run_sheet_session_members")
+    .select(
+      "id, role_title, call_time, run_sheet_sessions!inner(name, start_time, run_sheets!inner(title))"
+    )
+    .eq("user_id", userId)
     .eq("confirmation_status", "pending")
     .order("created_at", { ascending: false })
+    .limit(limit)
 
-  if (subTeamId) query = query.eq("sub_team_id", subTeamId)
+  // Supabase types joined relations as arrays even when the FK is single — see CLAUDE.md.
+  type Row = {
+    id: string
+    role_title: string | null
+    call_time: string | null
+    run_sheet_sessions: {
+      name: string
+      start_time: string | null
+      run_sheets: { title: string }
+    }
+  }
 
-  const { data } = await query
-  return (data ?? []) as (ScheduleSlot & { events: Event })[]
+  return ((data ?? []) as unknown as Row[]).map((r) => ({
+    id: r.id,
+    role_title: r.role_title,
+    call_time: r.call_time,
+    session_name: r.run_sheet_sessions.name,
+    session_start: r.run_sheet_sessions.start_time,
+    run_sheet_title: r.run_sheet_sessions.run_sheets.title,
+  }))
 }
 
 export async function getTasksForUser(userId: string) {

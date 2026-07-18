@@ -72,7 +72,6 @@ export function CommandPalette({
       { id: "nav-dashboard", label: "Go to Dashboard", icon: <LayoutDashboard />, group: "Navigation", keywords: ["home", "overview"], perform: () => go("/dashboard") },
       { id: "nav-calendar", label: "Go to Calendar", icon: <Calendar />, group: "Navigation", keywords: ["events", "schedule"], perform: () => go("/calendar") },
       { id: "nav-requests", label: "Go to Requests", icon: <Inbox />, group: "Navigation", keywords: ["inbox", "media", "task"], perform: () => go("/requests") },
-      { id: "nav-scheduling", label: "Go to Scheduling", icon: <CalendarCheck />, group: "Navigation", keywords: ["roster", "assign"], perform: () => go("/scheduling") },
       { id: "nav-runsheets", label: "Go to Run Sheets", icon: <ScrollText />, group: "Navigation", keywords: ["cue", "service"], perform: () => go("/run-sheets") },
       { id: "nav-subteams", label: "Go to Sub-Teams", icon: <Users />, group: "Navigation", keywords: ["teams", "members"], perform: () => go("/sub-teams") },
       { id: "nav-equipment", label: "Go to Equipment", icon: <Wrench />, group: "Navigation", keywords: ["inventory", "gear"], perform: () => go("/equipment") },
@@ -84,7 +83,6 @@ export function CommandPalette({
       // Create
       { id: "new-event", label: "Create event", hint: "Schedule a service or programme", icon: <Plus />, group: "Create", keywords: ["service", "sunday"], perform: () => go("/calendar?new=1") },
       { id: "new-request", label: "Create request", hint: "Submit a new media request", icon: <Plus />, group: "Create", keywords: ["design", "video", "photo"], perform: () => go("/requests?new=1") },
-      { id: "new-slot", label: "Add schedule slot", hint: "Assign a serving role", icon: <Plus />, group: "Create", perform: () => go("/scheduling?new=1") },
       { id: "new-runsheet", label: "Create run sheet", hint: "Build a service flow", icon: <Plus />, group: "Create", perform: () => go("/run-sheets?new=1") },
       { id: "new-equipment", label: "Add equipment", hint: "Register a new item", icon: <Plus />, group: "Create", perform: () => go("/equipment?new=1") },
       { id: "new-incident", label: "Report incident", hint: "Log a service issue", icon: <Plus />, group: "Create", perform: () => go("/incidents?new=1") },

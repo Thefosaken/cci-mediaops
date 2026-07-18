@@ -116,7 +116,6 @@ export const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
   { href: "/calendar", label: "Calendar", icon: "Calendar" },
   { href: "/requests", label: "Requests", icon: "Inbox" },
-  { href: "/scheduling", label: "Scheduling", icon: "CalendarCheck" },
   { href: "/run-sheets", label: "Run Sheets", icon: "ScrollText" },
   { href: "/sub-teams", label: "Sub-Teams", icon: "Users" },
   { href: "/equipment", label: "Equipment", icon: "Wrench" },

@@ -46,9 +46,9 @@ export async function getShellCounts(userId?: string | null): Promise<ShellCount
 
   const unconfirmedAssignmentsQuery = userId
     ? supabase
-        .from("schedule_slots")
+        .from("run_sheet_session_members")
         .select("id", { count: "exact", head: true })
-        .eq("assigned_user_id", userId)
+        .eq("user_id", userId)
         .eq("confirmation_status", "pending")
     : Promise.resolve({ count: 0 } as { count: number | null })
 

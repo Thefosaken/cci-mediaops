@@ -23,14 +23,13 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Users, Wrench, ClipboardCheck, AlertTriangle, BarChart3, Settings,
 }
 
-const PRIMARY_NAV = ["/dashboard", "/calendar", "/requests", "/scheduling", "/run-sheets"]
+const PRIMARY_NAV = ["/dashboard", "/calendar", "/requests", "/run-sheets"]
 const MANAGE_NAV = ["/sub-teams", "/equipment", "/approvals", "/incidents", "/reports", "/settings"]
 
 const HREF_TO_RESOURCE: Record<string, string> = {
   "/dashboard": "system",
   "/calendar": "events",
   "/requests": "requests",
-  "/scheduling": "schedules",
   "/run-sheets": "run_sheets",
   "/sub-teams": "sub_teams",
   "/equipment": "equipment",
@@ -45,7 +44,8 @@ function countForHref(href: string, counts?: ShellCounts): number {
   switch (href) {
     case "/requests": return counts.pendingRequests
     case "/approvals": return counts.pendingApprovals
-    case "/scheduling": return counts.unconfirmedAssignments
+    // Assignments live on run sheet sessions now that scheduling has been retired.
+    case "/run-sheets": return counts.unconfirmedAssignments
     case "/incidents": return counts.openIncidents
     case "/equipment": return counts.equipmentIssues
     case "/sub-teams": return counts.pendingJoinRequests

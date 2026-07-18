@@ -36,16 +36,6 @@ export const requestSchema = z.object({
   attachmentLinks: z.array(z.object({ title: z.string().optional(), url: z.string().url() })).optional(),
 })
 
-export const scheduleSlotSchema = z.object({
-  eventId: z.string().min(1, "Event is required"),
-  subTeamId: z.string().min(1, "Sub-team is required"),
-  roleTitle: z.string().min(1, "Role title is required"),
-  assignedUserId: z.string().optional(),
-  callTime: z.string().optional(),
-  startTime: z.string().optional(),
-  endTime: z.string().optional(),
-  notes: z.string().optional(),
-})
 
 export const taskSchema = z.object({
   title: z.string().min(2, "Title is required"),
@@ -60,24 +50,58 @@ export const taskSchema = z.object({
 
 export const runSheetSchema = z.object({
   title: z.string().min(1, "Title is required"),
-  eventId: z.string().min(1, "Event is required"),
+  // Optional now — run sheets can stand alone or exist as templates.
+  eventId: z.string().optional(),
+  sheetDate: z.string().optional(),
+  isTemplate: z.boolean().default(false),
 })
 
-export const runSheetSegmentSchema = z.object({
+/**
+ * A session on the timeline. Only name, start and end are required; cues and members
+ * are optional.
+ *
+ * Times are half-open [start, end), so a session ending 08:30 does not collide with one
+ * starting 08:30 — hence `end > start` rather than `end >= start`.
+ */
+export const runSheetSessionSchema = z
+  .object({
+    runSheetId: z.string().min(1, "Run sheet is required"),
+    name: z.string().min(1, "Session name is required"),
+    startTime: z.string().min(1, "Start time is required"),
+    endTime: z.string().min(1, "End time is required"),
+    sessionType: z.string().optional(),
+    notes: z.string().optional(),
+    cues: z
+      .array(
+        z.object({
+          subTeamId: z.string().min(1),
+          cueText: z.string().optional(),
+        })
+      )
+      .optional(),
+    memberIds: z.array(z.string()).optional(),
+  })
+  .refine((v) => new Date(v.endTime) > new Date(v.startTime), {
+    message: "End time must be after start time",
+    path: ["endTime"],
+  })
+
+/** A parked session — named, but with no times yet. */
+export const parkedSessionSchema = z.object({
   runSheetId: z.string().min(1, "Run sheet is required"),
-  title: z.string().min(1, "Segment title is required"),
-  segmentType: z.string().min(1, "Segment type is required"),
-  sequenceOrder: z.number().int().min(0),
-  plannedStartTime: z.string().optional(),
-  estimatedDurationMinutes: z.number().int().positive().optional(),
-  ownerName: z.string().optional(),
-  projectionCue: z.string().optional(),
-  soundCue: z.string().optional(),
-  lightingCue: z.string().optional(),
-  cameraCue: z.string().optional(),
-  socialMediaCue: z.string().optional(),
+  name: z.string().min(1, "Session name is required"),
+  sessionType: z.string().optional(),
   notes: z.string().optional(),
 })
+
+export const runSheetSessionMemberSchema = z.object({
+  sessionId: z.string().min(1, "Session is required"),
+  userId: z.string().optional(),
+  subTeamId: z.string().optional(),
+  roleTitle: z.string().optional(),
+  callTime: z.string().optional(),
+})
+
 
 export const equipmentSchema = z.object({
   name: z.string().min(2, "Equipment name is required"),
@@ -123,10 +147,11 @@ export type SignUpInput = z.infer<typeof signUpSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type EventInput = z.infer<typeof eventSchema>
 export type RequestInput = z.infer<typeof requestSchema>
-export type ScheduleSlotInput = z.infer<typeof scheduleSlotSchema>
 export type TaskInput = z.infer<typeof taskSchema>
 export type RunSheetInput = z.infer<typeof runSheetSchema>
-export type RunSheetSegmentInput = z.infer<typeof runSheetSegmentSchema>
+export type RunSheetSessionInput = z.infer<typeof runSheetSessionSchema>
+export type ParkedSessionInput = z.infer<typeof parkedSessionSchema>
+export type RunSheetSessionMemberInput = z.infer<typeof runSheetSessionMemberSchema>
 export type EquipmentInput = z.infer<typeof equipmentSchema>
 export type ApprovalInput = z.infer<typeof approvalSchema>
 export type IncidentInput = z.infer<typeof incidentSchema>

@@ -6,7 +6,7 @@ import {
   getPendingRequests,
   getEquipmentWithIssues,
   getOpenIncidents,
-  getUnconfirmedAssignments,
+  getMyAssignments,
 } from "@/server/queries"
 import { getShellCounts } from "@/server/queries/shell"
 import { getOnboardingState, buildChecklist } from "@/server/queries/onboarding"
@@ -60,7 +60,7 @@ export default async function DashboardPage() {
     getPendingRequests(),
     getEquipmentWithIssues(),
     getOpenIncidents(),
-    getUnconfirmedAssignments(),
+    getMyAssignments(user.id),
     getShellCounts(user.id),
     getOnboardingState(user.id),
   ])
@@ -71,8 +71,8 @@ export default async function DashboardPage() {
   const showChecklist =
     !onboarding.onboardedAt || checklistItems.some((i) => !i.done)
 
-  // My pending personal assignments (not all unconfirmed)
-  const mine = (myAssignments ?? []).filter((s) => s.assigned_user_id === user.id).slice(0, 5)
+  // Already scoped to this user and limited by the query.
+  const mine = myAssignments
 
   // Today's events
   const todays = events.filter((e) => isToday(new Date(e.start_time)))
@@ -294,7 +294,7 @@ export default async function DashboardPage() {
             <SectionTitle
               title="Your assignments"
               count={mine.length}
-              href="/scheduling"
+              href="/run-sheets"
               hrefLabel="View all"
             />
             {mine.length === 0 ? (
@@ -308,24 +308,24 @@ export default async function DashboardPage() {
               </CardContent>
             ) : (
               <ul className="divide-y divide-border">
-                {mine.map((slot) => {
-                  const ev = (slot as unknown as { events?: { title?: string; start_time?: string } }).events
-                  return (
-                    <li key={slot.id} className="px-5 py-3">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[13px] font-medium text-foreground truncate">
-                            {slot.role_title}
-                          </p>
-                          <p className="text-[12px] text-muted truncate mt-0.5">
-                            {ev?.title} {ev?.start_time && `· ${whenLabel(ev.start_time)}`}
-                          </p>
-                        </div>
-                        <StatusBadge status={slot.confirmation_status ?? "pending"} size="sm" />
+                {mine.map((assignment) => (
+                  <li key={assignment.id} className="px-5 py-3">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-medium text-foreground truncate">
+                          {/* A role is optional on a session member; fall back to the session. */}
+                          {assignment.role_title ?? assignment.session_name}
+                        </p>
+                        <p className="text-[12px] text-muted truncate mt-0.5">
+                          {assignment.run_sheet_title}
+                          {assignment.session_start && ` · ${whenLabel(assignment.session_start)}`}
+                        </p>
                       </div>
-                    </li>
-                  )
-                })}
+                      {/* Only pending assignments are fetched, so the badge is constant. */}
+                      <StatusBadge status="pending" size="sm" />
+                    </div>
+                  </li>
+                ))}
               </ul>
             )}
           </Card>

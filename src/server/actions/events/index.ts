@@ -48,7 +48,7 @@ export async function getEventDetails(id: string) {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from("events")
-    .select("*, schedule_slots(*), run_sheets(*), request_sub_teams(request_id)")
+    .select("*, run_sheets(*), request_sub_teams(request_id)")
     .eq("id", id)
     .single()
   if (error) return { error: error.message }
