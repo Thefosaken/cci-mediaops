@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Inbox, CheckCircle2, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -12,11 +12,14 @@ import { PRIORITIES } from "@/constants"
 import { submitPublicRequest } from "@/server/actions/public-requests"
 import type { PublicRequestInput } from "@/lib/validators"
 
+type SubTeamOption = { id: string; name: string }
+
 const EMPTY_FORM: PublicRequestInput = {
   title: "",
   requestingUnit: "",
   requesterName: "",
   requesterContact: "",
+  subTeamId: "",
   description: "",
   desiredOutput: "",
   deadline: "",
@@ -29,12 +32,28 @@ export function PublicRequestForm({ token }: { token: string }) {
   const [trackingId, setTrackingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [subTeams, setSubTeams] = useState<SubTeamOption[]>([])
   const [form, setForm] = useState(EMPTY_FORM)
+
+  useEffect(() => {
+    async function load() {
+      const { getPublicLinkByToken } = await import("@/server/actions/public-requests")
+      const link = await getPublicLinkByToken(token)
+      if (link?.sub_teams) {
+        setSubTeams(link.sub_teams)
+      }
+    }
+    load()
+  }, [token])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.title.trim() || !form.requestingUnit.trim() || !form.requesterName.trim() || !form.requesterContact.trim()) {
       setError("Please fill in all required fields.")
+      return
+    }
+    if (!form.subTeamId) {
+      setError("Please select a team.")
       return
     }
 
@@ -131,6 +150,16 @@ export function PublicRequestForm({ token }: { token: string }) {
                   onChange={(e) => setForm({ ...form, requesterContact: e.target.value })}
                   placeholder="e.g. johndoe@email.com or +234 800 000 0000"
                   required
+                />
+              </FormField>
+              <FormField label="Which team?" required helper="Select the team you need help from" className="sm:col-span-2">
+                <Select
+                  value={form.subTeamId}
+                  onChange={(v) => setForm({ ...form, subTeamId: v })}
+                  options={[
+                    { value: "", label: "Select a team…" },
+                    ...subTeams.map((st) => ({ value: st.id, label: st.name })),
+                  ]}
                 />
               </FormField>
               <FormField label="Request title" required className="sm:col-span-2">

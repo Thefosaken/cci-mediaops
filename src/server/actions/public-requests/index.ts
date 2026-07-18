@@ -35,8 +35,19 @@ export async function getPublicLinkByToken(token: string) {
   }
   if (!link.is_active) return null
   if (link.expires_at && new Date(link.expires_at) < new Date()) return null
-  return link
+
+  const { data: subTeams } = await admin
+    .from("sub_teams" as never)
+    .select("id, name")
+    .in("id", link.sub_team_ids)
+
+  return {
+    ...link,
+    sub_teams: (subTeams as unknown as { id: string; name: string }[]) ?? [],
+  }
 }
+
+export type PublicLinkWithTeams = Awaited<ReturnType<typeof getPublicLinkByToken>>
 
 export async function submitPublicRequest(
   token: string,
@@ -51,6 +62,10 @@ export async function submitPublicRequest(
 
   const link = await getPublicLinkByToken(token)
   if (!link) return { error: "Invalid or expired link" }
+
+  const selectedSubTeamId = parsed.data.subTeamId
+  const isValidTeam = selectedSubTeamId && link.sub_team_ids.includes(selectedSubTeamId)
+  if (!isValidTeam) return { error: "Please select a valid sub-team." }
 
   const trackingId = generateTrackingId()
 
@@ -76,18 +91,14 @@ export async function submitPublicRequest(
 
   if (reqError) return { error: reqError.message }
 
-  if (link.sub_team_ids.length > 0) {
-    const { error: subTeamError } = await (admin.from("request_sub_teams" as never) as any)
-      .insert(
-        link.sub_team_ids.map((stId: string) => ({
-          request_id: request.id,
-          sub_team_id: stId,
-        }))
-      )
+  const { error: subTeamError } = await (admin.from("request_sub_teams" as never) as any)
+    .insert({
+      request_id: request.id,
+      sub_team_id: selectedSubTeamId,
+    })
 
-    if (subTeamError) {
-      console.error("Failed to assign sub-teams:", subTeamError.message)
-    }
+  if (subTeamError) {
+    console.error("Failed to assign sub-team:", subTeamError.message)
   }
 
   await admin.rpc("increment_public_link_count" as never, { link_id: link.id } as never)

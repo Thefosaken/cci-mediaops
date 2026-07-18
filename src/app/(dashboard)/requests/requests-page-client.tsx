@@ -428,7 +428,6 @@ export function RequestsPageClient({
       <PublicLinkModal
         open={showNewLink}
         onClose={() => clear("newLink")}
-        subTeams={subTeams}
       />
 
       {/* Detail panel */}
@@ -484,45 +483,100 @@ export function RequestsPageClient({
 }
 
 function PublicLinkModal({
-  open, onClose, subTeams,
+  open, onClose,
 }: {
   open: boolean
   onClose: () => void
-  subTeams: SubTeamLite[]
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
   const [label, setLabel] = useState("")
-  const [subTeamIds, setSubTeamIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   async function create() {
-    if (!label.trim() || subTeamIds.length === 0) {
-      toastError("Add a label and at least one sub-team.")
+    if (!label.trim()) {
+      toastError("Add a label.")
       return
     }
     setSaving(true)
     const { generatePublicLink } = await import("@/server/actions/public-links")
-    const r = await generatePublicLink({ label: label.trim(), subTeamIds })
+    const r = await generatePublicLink({ label: label.trim() })
     setSaving(false)
     if (r.error) { toastError(r.error); return }
-    success("Public link generated")
-    setLabel(""); setSubTeamIds([])
+    const url = `${window.location.origin}/request/public/${r.data!.token}`
+    setGeneratedUrl(url)
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      success("Link copied to clipboard")
+    } catch {
+      setCopied(false)
+    }
     router.refresh()
+  }
+
+  function handleClose() {
+    setLabel("")
+    setGeneratedUrl(null)
+    setCopied(false)
     onClose()
+  }
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(generatedUrl!)
+      setCopied(true)
+      success("Link copied to clipboard")
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  if (generatedUrl) {
+    return (
+      <Modal
+        open={open}
+        onClose={handleClose}
+        title="Public request link"
+        description="Share this link with anyone who needs to submit a request."
+        size="sm"
+      >
+        <div className="space-y-4 py-2">
+          <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3">
+            <p className="text-[11.5px] text-faint mb-1.5">Link label</p>
+            <p className="text-[13px] font-medium text-foreground">{label}</p>
+          </div>
+          <FormField label="Link URL">
+            <div className="flex items-center gap-2">
+              <Input
+                value={generatedUrl}
+                readOnly
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+                className="flex-1"
+              />
+              <Button size="sm" variant={copied ? "primary" : "secondary"} onClick={handleCopy}>
+                {copied ? "Copied!" : "Copy"}
+              </Button>
+            </div>
+          </FormField>
+        </div>
+      </Modal>
+    )
   }
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="Generate public request link"
       description="Anyone with this link can submit a request without logging in."
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={create} loading={saving} disabled={saving || !label.trim() || subTeamIds.length === 0}>
+          <Button variant="ghost" onClick={handleClose} disabled={saving}>Cancel</Button>
+          <Button onClick={create} loading={saving} disabled={saving || !label.trim()}>
             <Link2 className="h-3.5 w-3.5" /> Generate
           </Button>
         </>
@@ -538,30 +592,11 @@ function PublicLinkModal({
             autoComplete="off"
           />
         </FormField>
-        <FormField label="Route to sub-teams" required helper="Submissions go directly to these teams">
-          <div className="space-y-1.5">
-            {subTeams.map((st) => (
-              <label
-                key={st.id}
-                className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-surface-subtle transition-colors"
-              >
-                <input
-                  type="checkbox"
-                  checked={subTeamIds.includes(st.id)}
-                  onChange={(e) => {
-                    setSubTeamIds(
-                      e.target.checked
-                        ? [...subTeamIds, st.id]
-                        : subTeamIds.filter((id) => id !== st.id)
-                    )
-                  }}
-                  className="h-3.5 w-3.5 accent-primary"
-                />
-                <span className="text-[13px] text-foreground">{st.name}</span>
-              </label>
-            ))}
-          </div>
-        </FormField>
+        <div className="rounded-lg border border-info/20 bg-info-soft/20 px-3 py-2.5">
+          <p className="text-[12px] text-info">
+            The person submitting the request will select which team to route to.
+          </p>
+        </div>
       </div>
     </Modal>
   )

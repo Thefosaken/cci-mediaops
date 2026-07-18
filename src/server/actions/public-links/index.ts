@@ -16,10 +16,8 @@ function generateToken(): string {
 
 export async function generatePublicLink(input: {
   label: string
-  subTeamIds: string[]
 }) {
   if (!input.label.trim()) return { error: "Label is required" }
-  if (input.subTeamIds.length === 0) return { error: "At least one sub-team is required" }
 
   const supabase = await createClient()
   const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -39,11 +37,18 @@ export async function generatePublicLink(input: {
     .single()
   if (!campus) return { error: "No campus found" }
 
+  const { data: allSubTeams } = await supabase
+    .from("sub_teams")
+    .select("id")
+    .eq("status", "active")
+
+  const subTeamIds = allSubTeams?.map((st) => st.id) ?? []
+
   const { data: link, error } = await supabase
     .from("public_request_links")
     .insert({
       campus_id: campus.id,
-      sub_team_ids: input.subTeamIds,
+      sub_team_ids: subTeamIds,
       created_by: profile.id,
       token: generateToken(),
       label: input.label.trim(),

@@ -110,6 +110,7 @@ export const publicRequestSchema = z.object({
   requestingUnit: z.string().min(1, "Requesting unit is required"),
   requesterName: z.string().min(1, "Your name is required"),
   requesterContact: z.string().min(1, "Email or phone is required"),
+  subTeamId: z.string().min(1, "Please select a team"),
   description: z.string().optional(),
   desiredOutput: z.string().optional(),
   deadline: z.string().optional(),
