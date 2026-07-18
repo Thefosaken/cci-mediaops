@@ -2,12 +2,10 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import Link from "next/link"
 import {
   addMonths,
   addWeeks,
   eachDayOfInterval,
-  endOfMonth,
   endOfWeek,
   format,
   isSameDay,
@@ -19,25 +17,19 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  ScrollText,
-  Trash2,
   Check,
-  X as XIcon,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils/cn"
 import { useToast } from "@/lib/toast/toast-context"
-import { assignDutyBulk, removeDuty, respondToDuty } from "@/server/actions/duties"
+import { removeDuty, respondToDuty } from "@/server/actions/duties"
 import { resolveTeamColor, TEAM_COLORS, type TeamColor } from "./team-colors"
 import { MonthGrid, WeekGrid, type CalendarEntry } from "./calendar-grid"
+import { DayPopover } from "./day-popover"
+import { ScheduleModal } from "./schedule-modal"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Button, IconButton } from "@/components/ui/button"
-import { Modal } from "@/components/ui/modal"
-import { SidePanel } from "@/components/ui/side-panel"
-import { Select } from "@/components/ui/select"
-import { FormField } from "@/components/ui/form-field"
-import { Badge } from "@/components/ui/badge"
 
 /**
  * Calendar.
@@ -81,6 +73,7 @@ interface Props {
   duties: DutyRow[]
   runSheets: { id: string; title: string; event_id: string | null; sheet_date: string | null }[]
   users: { id: string; full_name: string }[]
+  memberships: { user_id: string; sub_team_id: string }[]
   myTeamIds: string[]
   currentUserId: string
   canSchedule: boolean
@@ -95,6 +88,7 @@ export function CalendarPageClient({
   duties,
   runSheets,
   users,
+  memberships,
   myTeamIds,
   currentUserId,
   canSchedule,
@@ -102,11 +96,12 @@ export function CalendarPageClient({
 }: Props) {
   const router = useRouter()
   const toast = useToast()
-  const [pending, startTransition] = useTransition()
+  const [, startTransition] = useTransition()
 
   const [view, setView] = useState<View>("month")
   const [cursor, setCursor] = useState(() => new Date())
-  const [selected, setSelected] = useState<Date | null>(null)
+  // The anchor rect travels with the selection so the popover can position itself.
+  const [selected, setSelected] = useState<{ date: Date; anchor: DOMRect } | null>(null)
   const [scheduling, setScheduling] = useState(false)
 
   /**
@@ -183,13 +178,56 @@ export function CalendarPageClient({
 
   const selectedDay = useMemo(() => {
     if (!selected) return null
+    const day = selected.date
     return {
-      date: selected,
-      events: events.filter((e) => isSameDay(new Date(e.start_time), selected)),
-      duties: duties.filter((d) => isSameDay(new Date(`${d.duty_date}T12:00:00`), selected)),
-      entries: entriesByDay.get(selected.toDateString()) ?? [],
+      date: day,
+      events: events.filter((e) => isSameDay(new Date(e.start_time), day)),
+      duties: duties.filter((d) => isSameDay(new Date(`${d.duty_date}T12:00:00`), day)),
     }
-  }, [selected, events, duties, entriesByDay])
+  }, [selected, events, duties])
+
+  /** Teams this user may roster into. Leads and assistants stay inside their own. */
+  const assignableTeams = useMemo(
+    () => (seesAllTeams ? subTeams : subTeams.filter((t) => myTeamIds.includes(t.id))),
+    [seesAllTeams, subTeams, myTeamIds]
+  )
+
+  /**
+   * Who can be scheduled, each carrying their team memberships so the modal can
+   * resolve the team from the person instead of asking twice.
+   *
+   * A lead sees only their own team's members — assigning someone else's people is
+   * not their call, and a list of the whole campus makes finding their own harder.
+   */
+  const schedulablePeople = useMemo(() => {
+    const teamsByUser = new Map<string, string[]>()
+    for (const m of memberships) {
+      teamsByUser.set(m.user_id, [...(teamsByUser.get(m.user_id) ?? []), m.sub_team_id])
+    }
+
+    const assignableIds = new Set(assignableTeams.map((t) => t.id))
+
+    return users
+      .map((u) => ({ ...u, teamIds: teamsByUser.get(u.id) ?? [] }))
+      .filter((u) =>
+        seesAllTeams ? true : u.teamIds.some((id) => assignableIds.has(id))
+      )
+  }, [users, memberships, assignableTeams, seesAllTeams])
+
+  /**
+   * Days each person already has, keyed by person and team, so the modal can render
+   * them as taken rather than letting you pick a day that would be rejected.
+   */
+  const existingByUser = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const d of duties) {
+      const key = `${d.user_id}:${d.sub_team_id}`
+      const set = map.get(key) ?? new Set<string>()
+      set.add(d.duty_date)
+      map.set(key, set)
+    }
+    return map
+  }, [duties])
 
   const title =
     view === "month"
@@ -309,182 +347,66 @@ export function CalendarPageClient({
               days={days}
               month={cursor}
               entriesByDay={entriesByDay}
-              selected={selected}
-              onSelectDay={setSelected}
+              selected={selected?.date ?? null}
+              onSelectDay={(d, anchor) => setSelected({ date: d, anchor })}
             />
           ) : (
             <WeekGrid
               days={days}
               entriesByDay={entriesByDay}
-              selected={selected}
-              onSelectDay={setSelected}
+              selected={selected?.date ?? null}
+              onSelectDay={(d, anchor) => setSelected({ date: d, anchor })}
             />
           )}
         </div>
       </div>
 
       {/* ── Day detail ────────────────────────────────────────── */}
-      {selectedDay && (
-        <SidePanel
-          open
-          onClose={() => setSelected(null)}
-          title={format(selectedDay.date, "EEEE d MMMM")}
-          headerSlot={
-            <span className="text-[12px] text-muted">
-              {selectedDay.entries.length} item{selectedDay.entries.length === 1 ? "" : "s"}
-            </span>
+      {selectedDay && selected && (
+        <DayPopover
+          date={selectedDay.date}
+          anchor={selected.anchor}
+          events={selectedDay.events}
+          duties={selectedDay.duties}
+          runSheetFor={(eventId) =>
+            runSheets.find(
+              (r) =>
+                r.event_id === eventId ||
+                (r.sheet_date && isSameDay(new Date(r.sheet_date), selectedDay.date))
+            )
           }
-        >
-          <div className="divide-y divide-border-subtle">
-            <section className="p-5">
-              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                Services
-              </h3>
-              {selectedDay.events.length === 0 ? (
-                <p className="text-[12.5px] text-faint">Nothing scheduled</p>
-              ) : (
-                <ul className="space-y-2">
-                  {selectedDay.events.map((ev) => {
-                    const sheet = runSheets.find(
-                      (r) =>
-                        r.event_id === ev.id ||
-                        (r.sheet_date && isSameDay(new Date(r.sheet_date), selectedDay.date))
-                    )
-                    return (
-                      <li key={ev.id} className="rounded-md border border-border bg-surface p-3">
-                        <p className="text-[13px] font-medium text-foreground">{ev.title}</p>
-                        <p className="mt-0.5 text-[11.5px] tabular-nums text-muted">
-                          {format(new Date(ev.start_time), "h:mm a")}
-                          {ev.location && ` · ${ev.location}`}
-                        </p>
-                        {sheet && (
-                          <Link
-                            href={`/run-sheets/${sheet.id}`}
-                            className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-primary hover:underline"
-                          >
-                            <ScrollText className="size-3.5" />
-                            Open run sheet
-                          </Link>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </section>
-
-            <section className="p-5">
-              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                On duty
-              </h3>
-              {selectedDay.duties.length === 0 ? (
-                <p className="text-[12.5px] text-faint">Nobody rostered yet</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {selectedDay.duties.map((d) => {
-                    const mine = d.user_id === currentUserId
-                    const palette = TEAM_COLORS[colorFor.get(d.sub_team_id) ?? "blue"]
-                    return (
-                      <li
-                        key={d.id}
-                        className="group flex items-center gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2"
-                      >
-                        <span className={cn("size-2 shrink-0 rounded-full", palette.dot)} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] text-foreground">
-                            {d.users?.full_name ?? "Unassigned"}
-                          </span>
-                          <span className="block truncate text-[11px] text-muted">
-                            {d.sub_teams?.name}
-                            {d.role_title && ` · ${d.role_title}`}
-                          </span>
-                        </span>
-
-                        {d.status !== "scheduled" && (
-                          <Badge variant={d.status === "declined" ? "danger" : "neutral"}>
-                            {d.status}
-                          </Badge>
-                        )}
-
-                        {/* Responding to your own duty needs no scheduling permission. */}
-                        {mine && d.status === "scheduled" && (
-                          <span className="flex gap-1">
-                            <IconButton
-                              label="Accept"
-                              size="xs"
-                              variant="ghost"
-                              onClick={() =>
-                                startTransition(async () => {
-                                  const r = await respondToDuty(d.id, "confirmed")
-                                  if (r.error) toast.error(r.error)
-                                  else router.refresh()
-                                })
-                              }
-                            >
-                              <Check className="size-3.5" />
-                            </IconButton>
-                            <IconButton
-                              label="Decline"
-                              size="xs"
-                              variant="ghost"
-                              onClick={() =>
-                                startTransition(async () => {
-                                  const r = await respondToDuty(d.id, "declined")
-                                  if (r.error) toast.error(r.error)
-                                  else router.refresh()
-                                })
-                              }
-                            >
-                              <XIcon className="size-3.5" />
-                            </IconButton>
-                          </span>
-                        )}
-
-                        {canSchedule && (
-                          <IconButton
-                            label="Remove"
-                            size="xs"
-                            variant="ghost"
-                            className="opacity-0 transition-opacity group-hover:opacity-100"
-                            onClick={() =>
-                              startTransition(async () => {
-                                const r = await removeDuty(d.id)
-                                if (r.error) toast.error(r.error)
-                                else router.refresh()
-                              })
-                            }
-                          >
-                            <Trash2 className="size-3.5" />
-                          </IconButton>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-
-              {canSchedule && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="mt-3"
-                  onClick={() => setScheduling(true)}
-                >
-                  <Plus className="size-3.5" /> Schedule someone
-                </Button>
-              )}
-            </section>
-          </div>
-        </SidePanel>
+          colorFor={colorFor}
+          currentUserId={currentUserId}
+          canSchedule={canSchedule}
+          onClose={() => setSelected(null)}
+          onSchedule={() => {
+            setSelected(null)
+            setScheduling(true)
+          }}
+          onRespond={(id, status) =>
+            startTransition(async () => {
+              const r = await respondToDuty(id, status)
+              if (r.error) toast.error(r.error)
+              else router.refresh()
+            })
+          }
+          onRemove={(id) =>
+            startTransition(async () => {
+              const r = await removeDuty(id)
+              if (r.error) toast.error(r.error)
+              else router.refresh()
+            })
+          }
+        />
       )}
 
       {scheduling && canSchedule && (
         <ScheduleModal
           month={cursor}
-          subTeams={seesAllTeams ? subTeams : subTeams.filter((t) => myTeamIds.includes(t.id))}
-          users={users}
+          people={schedulablePeople}
+          teams={assignableTeams}
           colorFor={colorFor}
-          busy={pending}
+          existingByUser={existingByUser}
           onClose={() => setScheduling(false)}
           onDone={(msg) => {
             setScheduling(false)
@@ -537,179 +459,3 @@ function Toggle({
   )
 }
 
-/* ────────────────────────────────────────────────────────────────── */
-
-/**
- * Bulk rostering — the monthly-schedule case.
- *
- * Pick a person, a team and the days. The weekday shortcuts cover the common shape
- * ("every Sunday in August") without real recurrence rules, which would be a much
- * larger commitment for a pattern that gets hand-adjusted every month anyway.
- */
-function ScheduleModal({
-  month,
-  subTeams,
-  users,
-  colorFor,
-  busy,
-  onClose,
-  onDone,
-  onError,
-}: {
-  month: Date
-  subTeams: { id: string; name: string; color: string | null }[]
-  users: { id: string; full_name: string }[]
-  colorFor: Map<string, TeamColor>
-  busy: boolean
-  onClose: () => void
-  onDone: (message: string) => void
-  onError: (message: string) => void
-}) {
-  const [userId, setUserId] = useState("")
-  const [subTeamId, setSubTeamId] = useState(subTeams[0]?.id ?? "")
-  const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [saving, setSaving] = useState(false)
-
-  const days = useMemo(
-    () => eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) }),
-    [month]
-  )
-
-  const toggleDay = (iso: string) =>
-    setPicked((prev) => {
-      const next = new Set(prev)
-      if (next.has(iso)) next.delete(iso)
-      else next.add(iso)
-      return next
-    })
-
-  /** Toggles every instance of a weekday — on unless they are all already on. */
-  const pickWeekday = (weekday: number) => {
-    const matching = days.filter((d) => d.getDay() === weekday).map(toIso)
-    setPicked((prev) => {
-      const next = new Set(prev)
-      const allOn = matching.every((d) => next.has(d))
-      matching.forEach((d) => (allOn ? next.delete(d) : next.add(d)))
-      return next
-    })
-  }
-
-  const submit = async () => {
-    setSaving(true)
-    const res = await assignDutyBulk({ userId, subTeamId, dates: [...picked].sort() })
-    setSaving(false)
-    if (res.error) return onError(res.error)
-    onDone(
-      res.skipped
-        ? `Scheduled ${res.added} day${res.added === 1 ? "" : "s"} · ${res.skipped} already covered`
-        : `Scheduled ${res.added} day${res.added === 1 ? "" : "s"}`
-    )
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Schedule people"
-      description={format(month, "MMMM yyyy")}
-      size="lg"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            loading={saving || busy}
-            disabled={!userId || !subTeamId || picked.size === 0}
-            onClick={submit}
-          >
-            Schedule{picked.size > 0 && ` ${picked.size} day${picked.size === 1 ? "" : "s"}`}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FormField label="Person" required>
-            <Select
-              value={userId}
-              onChange={setUserId}
-              searchable
-              placeholder="Choose someone…"
-              options={users.map((u) => ({ value: u.id, label: u.full_name }))}
-            />
-          </FormField>
-          <FormField label="Team" required>
-            <Select
-              value={subTeamId}
-              onChange={setSubTeamId}
-              options={subTeams.map((t) => ({ value: t.id, label: t.name }))}
-            />
-          </FormField>
-        </div>
-
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[11.5px] font-medium text-muted">Days</span>
-            <div className="flex gap-1">
-              {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => pickWeekday(i)}
-                  className="grid size-6 place-items-center rounded text-[11px] font-medium text-muted transition-colors hover:bg-surface-subtle hover:text-foreground"
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1">
-            {/* Lead-in blanks so the 1st lands under its real weekday. */}
-            {Array.from({ length: startOfMonth(month).getDay() }).map((_, i) => (
-              <span key={`pad-${i}`} />
-            ))}
-            {days.map((d) => {
-              const iso = toIso(d)
-              const on = picked.has(iso)
-              return (
-                <button
-                  key={iso}
-                  type="button"
-                  onClick={() => toggleDay(iso)}
-                  className={cn(
-                    "grid h-9 place-items-center rounded-md border text-[12.5px] tabular-nums transition-colors duration-100",
-                    on
-                      ? "border-primary bg-primary font-medium text-[var(--color-primary-foreground)]"
-                      : "border-border bg-surface text-muted hover:border-border-strong hover:text-foreground"
-                  )}
-                >
-                  {format(d, "d")}
-                </button>
-              )
-            })}
-          </div>
-
-          <p className="mt-2 text-[11.5px] text-faint">
-            Tap a weekday letter to select every one of them this month.
-          </p>
-        </div>
-
-        {subTeamId && (
-          <p className="flex items-center gap-2 border-t border-border-subtle pt-3 text-[12px] text-muted">
-            <span
-              className={cn("size-2 rounded-full", TEAM_COLORS[colorFor.get(subTeamId) ?? "blue"].dot)}
-            />
-            Shows on the calendar in this colour
-          </p>
-        )}
-      </div>
-    </Modal>
-  )
-}
-
-/** Local-date ISO (yyyy-MM-dd) — toISOString would shift across the date line. */
-function toIso(d: Date) {
-  return format(d, "yyyy-MM-dd")
-}

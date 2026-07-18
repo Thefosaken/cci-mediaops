@@ -38,7 +38,7 @@ export function MonthGrid({
   month: Date
   entriesByDay: Map<string, CalendarEntry[]>
   selected: Date | null
-  onSelectDay: (day: Date) => void
+  onSelectDay: (day: Date, anchor: DOMRect) => void
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -67,7 +67,7 @@ export function MonthGrid({
             <button
               key={key}
               type="button"
-              onClick={() => onSelectDay(day)}
+              onClick={(e) => onSelectDay(day, e.currentTarget.getBoundingClientRect())}
               className={cn(
                 "group flex min-h-0 flex-col gap-1 overflow-hidden border-b border-r border-border p-1.5 text-left",
                 "transition-colors duration-100",
@@ -115,7 +115,7 @@ export function WeekGrid({
   days: Date[]
   entriesByDay: Map<string, CalendarEntry[]>
   selected: Date | null
-  onSelectDay: (day: Date) => void
+  onSelectDay: (day: Date, anchor: DOMRect) => void
 }) {
   return (
     <div className="grid min-h-0 flex-1 grid-cols-7">
@@ -129,7 +129,7 @@ export function WeekGrid({
           <button
             key={key}
             type="button"
-            onClick={() => onSelectDay(day)}
+            onClick={(e) => onSelectDay(day, e.currentTarget.getBoundingClientRect())}
             className={cn(
               "flex min-h-0 flex-col border-r border-border text-left last:border-r-0",
               "transition-colors duration-100 hover:bg-surface-subtle/40",

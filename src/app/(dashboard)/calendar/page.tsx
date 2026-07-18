@@ -32,6 +32,8 @@ export default async function CalendarPage() {
     { data: duties },
     { data: myTeams },
     { data: users },
+    // Order must track the Promise.all array below.
+    { data: memberships },
     { data: runSheets },
   ] = await Promise.all([
     supabase
@@ -51,6 +53,12 @@ export default async function CalendarPage() {
       .eq("user_id", currentUser.id)
       .eq("status", "active"),
     supabase.from("users").select("id, full_name").eq("status", "active").order("full_name"),
+    // Every active team membership, so picking a person can resolve their team without
+    // asking — nobody should have to restate something the system already knows.
+    supabase
+      .from("sub_team_memberships")
+      .select("user_id, sub_team_id")
+      .eq("status", "active"),
     // Linked by date and event, so a day showing a service can jump straight to its sheet.
     supabase.from("run_sheets").select("id, title, event_id, sheet_date").eq("is_template", false),
   ])
@@ -63,6 +71,7 @@ export default async function CalendarPage() {
         duties={(duties ?? []) as unknown as Parameters<typeof CalendarPageClient>[0]["duties"]}
         runSheets={runSheets ?? []}
         users={users ?? []}
+        memberships={memberships ?? []}
         myTeamIds={(myTeams ?? []).map((m) => m.sub_team_id)}
         currentUserId={currentUser.id}
         canSchedule={canSchedule}
