@@ -563,7 +563,10 @@ function SessionBar({
         <div
           className={cn(
             "relative mt-auto space-y-[3px] border-t px-2.5 py-1.5",
-            selected ? "border-[var(--color-primary-foreground)]/20" : "border-primary/20"
+            // A primary-tinted rule over the soft primary fill reads as a dark seam,
+            // not a divider. Tinting from the foreground lightens it instead, so it
+            // separates the two blocks the way it looks like it should.
+            selected ? "border-[var(--color-primary-foreground)]/25" : "border-foreground/10"
           )}
         >
           {session.members.slice(0, MAX_PEOPLE_IN_BAR).map((m) => (

@@ -286,32 +286,51 @@ export function LiveMode({
             </div>
           </div>
 
-          {/* Cues sit under the dial, still the largest reading text. */}
+          {/*
+            Cues read as a rundown sheet: one block, one row per unit, the unit name
+            always in the same left column.
+
+            The previous 2-up card grid stranded an odd cue on its own row and broke
+            differently at every count. Fixed alignment means a sound operator learns
+            where to look once and finds their line by position, not by reading every
+            card — which is the whole job during a service.
+          */}
           {filledCues.length > 0 && (
-            <ul className="mt-7 grid w-full gap-2.5 sm:grid-cols-2">
-              {filledCues.map((c, i) => (
-                <li
-                  key={c.name}
-                  style={{ animationDelay: `${i * 45}ms` }}
-                  className="animate-[slide-up_var(--duration-medium)_var(--ease-out-expo)_backwards]
-                             relative overflow-hidden rounded-md border border-border bg-surface p-3.5"
-                >
-                  <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-primary/60" />
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-                    {c.name}
-                  </p>
-                  <p className="mt-1.5 text-[15px] leading-snug text-foreground">{c.text}</p>
-                </li>
-              ))}
-            </ul>
+            <div className="mt-8 w-full overflow-hidden rounded-lg border border-border bg-surface">
+              <ul className="divide-y divide-border-subtle">
+                {filledCues.map((c, i) => (
+                  <li
+                    key={c.name}
+                    style={{ animationDelay: `${i * 50}ms` }}
+                    className="animate-[slide-up_var(--duration-medium)_var(--ease-out-expo)_backwards]
+                               grid grid-cols-[7.5rem_1fr] items-baseline gap-4 px-4 py-3 sm:px-5 sm:py-3.5"
+                  >
+                    <span className="text-[10.5px] font-semibold uppercase tracking-[0.11em] text-muted">
+                      {c.name}
+                    </span>
+                    {/* The line actually being called — the largest reading text here. */}
+                    <span className="text-[17px] font-medium leading-snug text-foreground">
+                      {c.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
+          {/* People sit in the same aligned family as the cues, so the block below the
+              dial reads as one sheet rather than a card and a stray line of text. */}
           {current.run_sheet_session_members.length > 0 && (
-            <p className="mt-5 text-center text-[12.5px] text-muted">
-              {current.run_sheet_session_members
-                .map((m) => m.users?.full_name ?? m.role_title ?? "Unassigned")
-                .join(" · ")}
-            </p>
+            <div className="mt-2.5 grid w-full grid-cols-[7.5rem_1fr] items-baseline gap-4 px-4 sm:px-5">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.11em] text-faint">
+                On session
+              </span>
+              <span className="text-[13px] leading-snug text-muted">
+                {current.run_sheet_session_members
+                  .map((m) => m.users?.full_name ?? m.role_title ?? "Unassigned")
+                  .join(" · ")}
+              </span>
+            </div>
           )}
 
           {current.notes && (
