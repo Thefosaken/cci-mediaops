@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { getCurrentUserWithRole } from "@/lib/auth/auth-helpers"
 import { hasPermission } from "@/lib/permissions"
 import { revalidatePath } from "next/cache"
+import { createNotification } from "@/lib/notifications"
 import type { UserRole, DutyStatus } from "@/types"
 
 /**
@@ -48,24 +49,77 @@ export async function assignDuty(input: {
   if (!guard.ok) return { error: guard.error }
 
   const supabase = await createClient()
-  const { error } = await supabase.from("duty_assignments").insert({
-    campus_id: guard.campusId,
-    sub_team_id: input.subTeamId,
-    user_id: input.userId,
-    duty_date: input.dutyDate,
-    event_id: input.eventId ?? null,
-    role_title: input.roleTitle ?? null,
-    call_time: input.callTime ?? null,
-    created_by: guard.userId,
-  })
+  const { data, error } = await supabase
+    .from("duty_assignments")
+    .insert({
+      campus_id: guard.campusId,
+      sub_team_id: input.subTeamId,
+      user_id: input.userId,
+      duty_date: input.dutyDate,
+      event_id: input.eventId ?? null,
+      role_title: input.roleTitle ?? null,
+      call_time: input.callTime ?? null,
+      created_by: guard.userId,
+    })
+    .select("id")
+    .single()
 
   if (error) {
     if (error.code === "23505") return { error: "They are already on that team that day" }
     return { error: error.message }
   }
 
+  await notifyRostered(input.userId, input.subTeamId, [input.dutyDate], data.id)
+
   revalidatePath("/calendar")
   return { success: true }
+}
+
+/**
+ * Tell someone they have been put on duty.
+ *
+ * One notification per batch rather than per day — being scheduled for four Sundays
+ * is one piece of news, and four identical rows would bury everything else in their
+ * feed. Failures are swallowed by createNotification, so a notification problem never
+ * costs someone their roster.
+ */
+async function notifyRostered(
+  userId: string,
+  subTeamId: string,
+  dates: string[],
+  entityId: string
+) {
+  if (dates.length === 0) return
+
+  const supabase = await createClient()
+  const { data: team } = await supabase
+    .from("sub_teams")
+    .select("name")
+    .eq("id", subTeamId)
+    .maybeSingle()
+
+  const teamName = team?.name ?? "your team"
+  const sorted = [...dates].sort()
+  const first = new Date(`${sorted[0]}T12:00:00`).toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  })
+
+  await createNotification({
+    userId,
+    type: "user_assigned",
+    title:
+      dates.length === 1
+        ? `You're on ${teamName} duty on ${first}`
+        : `You're on ${teamName} duty for ${dates.length} days`,
+    body:
+      dates.length === 1
+        ? undefined
+        : `Starting ${first}. Open the calendar to see them all and confirm.`,
+    entityType: "duty",
+    entityId,
+  })
 }
 
 /**
@@ -123,6 +177,12 @@ export async function assignDutyBulk(input: {
   if (error) return { error: error.message }
 
   const added = data?.length ?? 0
+  // Only notify about days actually added — re-running over an overlapping range
+  // shouldn't tell someone again about duties they already have.
+  if (added > 0 && data?.[0]) {
+    await notifyRostered(input.userId, input.subTeamId, input.dates.slice(0, added), data[0].id)
+  }
+
   revalidatePath("/calendar")
   return { success: true, added, skipped: input.dates.length - added }
 }
@@ -151,14 +211,40 @@ export async function respondToDuty(dutyId: string, status: Extract<DutyStatus, 
   if (!profile) return { error: "Not signed in" }
 
   const supabase = await createClient()
-  const { error, count } = await supabase
+  const { data, error } = await supabase
     .from("duty_assignments")
-    .update({ status, updated_at: new Date().toISOString() }, { count: "exact" })
+    .update({ status, updated_at: new Date().toISOString() })
     .eq("id", dutyId)
     .eq("user_id", profile.id)
+    .select("id, duty_date, created_by, sub_teams:sub_team_id(name)")
+    .maybeSingle()
 
   if (error) return { error: error.message }
-  if (!count) return { error: "That duty is not yours to respond to" }
+  if (!data) return { error: "That duty is not yours to respond to" }
+
+  /**
+   * A decline leaves a hole in the rota, and the person who filled it is the one who
+   * has to find a replacement — so they get told. Confirmations are deliberately
+   * silent: a lead who hears about every acceptance stops reading the feed, and then
+   * misses the declines that actually need action.
+   */
+  if (status === "declined" && data.created_by && data.created_by !== profile.id) {
+    const team = (data as unknown as { sub_teams?: { name?: string } }).sub_teams?.name ?? "a team"
+    const when = new Date(`${data.duty_date}T12:00:00`).toLocaleDateString(undefined, {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    })
+
+    await createNotification({
+      userId: data.created_by,
+      type: "assignment_declined",
+      title: `${profile.full_name} declined ${team} duty`,
+      body: `${when} now needs cover.`,
+      entityType: "duty",
+      entityId: data.id,
+    })
+  }
 
   revalidatePath("/calendar")
   return { success: true }

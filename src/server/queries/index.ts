@@ -22,14 +22,24 @@ export async function getPendingRequests() {
   return (data ?? []) as Request[]
 }
 
-/** One row of "your assignments" — a session you are on, awaiting your confirmation. */
+/**
+ * One row of "your assignments".
+ *
+ * Two different things land here and a member shouldn't have to care which: a duty
+ * (you're on Sound this Sunday) and a run sheet session (you're on this item of that
+ * service). `kind` keeps them distinguishable for links and labels.
+ */
 export interface MyAssignment {
   id: string
+  kind: "duty" | "session"
   role_title: string | null
   call_time: string | null
-  session_name: string
-  session_start: string | null
-  run_sheet_title: string
+  /** Session name, or the team name for a duty. */
+  title: string
+  /** When it happens — session start, or the duty's date. */
+  when: string | null
+  /** Run sheet title, or the service/date context for a duty. */
+  context: string
 }
 
 /**
@@ -43,18 +53,31 @@ export interface MyAssignment {
  */
 export async function getMyAssignments(userId: string, limit = 5): Promise<MyAssignment[]> {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from("run_sheet_session_members")
-    .select(
-      "id, role_title, call_time, run_sheet_sessions!inner(name, start_time, run_sheets!inner(title))"
-    )
-    .eq("user_id", userId)
-    .eq("confirmation_status", "pending")
-    .order("created_at", { ascending: false })
-    .limit(limit)
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [{ data: sessionRows }, { data: dutyRows }] = await Promise.all([
+    supabase
+      .from("run_sheet_session_members")
+      .select(
+        "id, role_title, call_time, run_sheet_sessions!inner(name, start_time, run_sheets!inner(title))"
+      )
+      .eq("user_id", userId)
+      .eq("confirmation_status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(limit),
+    // Past duties are history, not something to action, so only today onward.
+    supabase
+      .from("duty_assignments")
+      .select("id, role_title, call_time, duty_date, status, sub_teams:sub_team_id(name), events:event_id(title)")
+      .eq("user_id", userId)
+      .in("status", ["scheduled", "confirmed"])
+      .gte("duty_date", today)
+      .order("duty_date")
+      .limit(limit),
+  ])
 
   // Supabase types joined relations as arrays even when the FK is single — see CLAUDE.md.
-  type Row = {
+  type SessionRow = {
     id: string
     role_title: string | null
     call_time: string | null
@@ -64,15 +87,41 @@ export async function getMyAssignments(userId: string, limit = 5): Promise<MyAss
       run_sheets: { title: string }
     }
   }
+  type DutyRow = {
+    id: string
+    role_title: string | null
+    call_time: string | null
+    duty_date: string
+    status: string
+    sub_teams: { name: string } | null
+    events: { title: string } | null
+  }
 
-  return ((data ?? []) as unknown as Row[]).map((r) => ({
+  const sessions: MyAssignment[] = ((sessionRows ?? []) as unknown as SessionRow[]).map((r) => ({
     id: r.id,
+    kind: "session",
     role_title: r.role_title,
     call_time: r.call_time,
-    session_name: r.run_sheet_sessions.name,
-    session_start: r.run_sheet_sessions.start_time,
-    run_sheet_title: r.run_sheet_sessions.run_sheets.title,
+    title: r.run_sheet_sessions.name,
+    when: r.run_sheet_sessions.start_time,
+    context: r.run_sheet_sessions.run_sheets.title,
   }))
+
+  const duties: MyAssignment[] = ((dutyRows ?? []) as unknown as DutyRow[]).map((r) => ({
+    id: r.id,
+    kind: "duty",
+    role_title: r.role_title,
+    call_time: r.call_time,
+    title: r.sub_teams?.name ?? "Duty",
+    // Midday, so rendering in a local timezone can't shift a date-only duty a day.
+    when: `${r.duty_date}T12:00:00`,
+    context: r.events?.title ?? "Scheduled duty",
+  }))
+
+  // Soonest first, so the next thing you're on is at the top whichever kind it is.
+  return [...duties, ...sessions]
+    .sort((a, b) => (a.when ?? "").localeCompare(b.when ?? ""))
+    .slice(0, limit)
 }
 
 export async function getTasksForUser(userId: string) {

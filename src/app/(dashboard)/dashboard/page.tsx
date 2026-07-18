@@ -291,10 +291,11 @@ export default async function DashboardPage() {
 
           {/* My assignments */}
           <Card>
+            {/* Duties live on the calendar, and most of this list is duties. */}
             <SectionTitle
               title="Your assignments"
               count={mine.length}
-              href="/run-sheets"
+              href="/calendar"
               hrefLabel="View all"
             />
             {mine.length === 0 ? (
@@ -309,20 +310,23 @@ export default async function DashboardPage() {
             ) : (
               <ul className="divide-y divide-border">
                 {mine.map((assignment) => (
-                  <li key={assignment.id} className="px-5 py-3">
+                  <li key={`${assignment.kind}-${assignment.id}`} className="px-5 py-3">
                     <div className="flex items-start gap-2 min-w-0">
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] font-medium text-foreground truncate">
-                          {/* A role is optional on a session member; fall back to the session. */}
-                          {assignment.role_title ?? assignment.session_name}
+                          {/* A role is optional on both kinds; fall back to the title. */}
+                          {assignment.role_title ?? assignment.title}
                         </p>
                         <p className="text-[12px] text-muted truncate mt-0.5">
-                          {assignment.run_sheet_title}
-                          {assignment.session_start && ` · ${whenLabel(assignment.session_start)}`}
+                          {assignment.context}
+                          {assignment.when && ` · ${whenLabel(assignment.when)}`}
                         </p>
                       </div>
-                      {/* Only pending assignments are fetched, so the badge is constant. */}
-                      <StatusBadge status="pending" size="sm" />
+                      {/* Duty and session read differently — a member needs to know which
+                          they're looking at, since only one has a run sheet behind it. */}
+                      <Badge variant="neutral">
+                        {assignment.kind === "duty" ? "Duty" : "Session"}
+                      </Badge>
                     </div>
                   </li>
                 ))}

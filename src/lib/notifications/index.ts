@@ -29,7 +29,7 @@ export async function createNotification({
   type: NotificationType
   title: string
   body?: string
-  entityType: "request" | "task" | "equipment" | "incident" | "event"
+  entityType: "request" | "task" | "equipment" | "incident" | "event" | "duty"
   entityId: string
 }) {
   const supabase = await createClient()
