@@ -20,6 +20,7 @@ interface ShellProps {
   userRole?: UserRole;
   userRoleLabel?: string | null;
   campusName?: string;
+  myTeamName?: string | null;
 }
 
 export function Shell({
@@ -32,6 +33,7 @@ export function Shell({
   userRole,
   userRoleLabel,
   campusName,
+  myTeamName,
 }: ShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -52,6 +54,7 @@ export function Shell({
               counts={counts}
               campusName={campusName}
               userRole={userRole}
+              myTeamName={myTeamName}
             />
           </div>
 
@@ -81,6 +84,7 @@ export function Shell({
               counts={counts}
               campusName={campusName}
               userRole={userRole}
+              myTeamName={myTeamName}
             />
           </div>
 

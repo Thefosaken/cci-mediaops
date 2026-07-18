@@ -60,9 +60,18 @@ interface SidebarProps {
   counts?: ShellCounts
   campusName?: string
   userRole?: UserRole
+  /** The single sub-team this user belongs to, when they belong to exactly one. */
+  myTeamName?: string | null
 }
 
-export function Sidebar({ onClose, onCommandOpen, counts, campusName, userRole }: SidebarProps) {
+export function Sidebar({
+  onClose,
+  onCommandOpen,
+  counts,
+  campusName,
+  userRole,
+  myTeamName,
+}: SidebarProps) {
   const pathname = usePathname()
   const { collapsed, toggle } = useSidebarCollapsed()
 
@@ -80,9 +89,24 @@ export function Sidebar({ onClose, onCommandOpen, counts, campusName, userRole }
   }
 
   const primaryItems = NAV_ITEMS.filter((i) => PRIMARY_NAV.includes(i.href) && canView(i.href))
-  const manageItems = NAV_ITEMS.filter((i) => MANAGE_NAV.includes(i.href) && canView(i.href))
 
-  function NavLink({ item }: { item: (typeof NAV_ITEMS)[number] }) {
+  /**
+   * "Sub-Teams" is an administrator's word for the structure. A lead or member belongs
+   * to one team and thinks of it by name, so they see "Projection", not the container
+   * it sits in. Admins keep the structural label because they work across all of them.
+   */
+  const seesStructure = userRole === "super_admin" || userRole === "media_admin"
+  const manageItems = NAV_ITEMS.filter(
+    (i) => MANAGE_NAV.includes(i.href) && canView(i.href)
+  ).map((i) =>
+    i.href === "/sub-teams" && !seesStructure && myTeamName
+      ? { ...i, label: myTeamName }
+      : i
+  )
+
+  // Structural, not `(typeof NAV_ITEMS)[number]` — labels are overridden above, so the
+  // literal types from the `as const` array no longer apply.
+  function NavLink({ item }: { item: { href: string; label: string; icon: string } }) {
     const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
     const Icon = iconMap[item.icon]
     const badge = countForHref(item.href, counts)

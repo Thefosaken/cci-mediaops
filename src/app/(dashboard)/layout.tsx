@@ -32,6 +32,22 @@ export default async function DashboardLayout({
   const roleLabel = rawRole ? (ROLE_LABELS[rawRole] ?? rawRole) : null
   const campusName = (membership as unknown as { campuses?: { name?: string } } | null)?.campuses?.name
 
+  /**
+   * A lead or member sees their own team's name in the sidebar instead of the
+   * structural label. Only resolved when they belong to exactly one team — with
+   * several, no single name is truthful and "Sub-Teams" is the honest label again.
+   */
+  const { data: myTeams } = await supabase
+    .from("sub_team_memberships")
+    .select("sub_teams(name)")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+
+  const myTeamName =
+    myTeams?.length === 1
+      ? ((myTeams[0] as unknown as { sub_teams?: { name?: string } }).sub_teams?.name ?? null)
+      : null
+
   return (
     <Shell
       counts={counts}
@@ -42,6 +58,7 @@ export default async function DashboardLayout({
       userRole={rawRole}
       userRoleLabel={roleLabel}
       campusName={campusName}
+      myTeamName={myTeamName}
     >
       {children}
     </Shell>
