@@ -56,6 +56,29 @@ export async function addSubTeamMember(subTeamId: string, userId: string, roleId
 
 export async function removeSubTeamMember(subTeamId: string, userId: string) {
   const supabase = await createClient()
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  if (!authUser) return { error: "Not authenticated" }
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("id")
+    .eq("auth_user_id", authUser.id)
+    .single()
+  if (!profile) return { error: "User not found" }
+
+  if (profile.id === userId) {
+    const { data: myMembership } = await supabase
+      .from("sub_team_memberships")
+      .select("role_id, roles:role_id(name)")
+      .eq("sub_team_id", subTeamId)
+      .eq("user_id", profile.id)
+      .single()
+    const myRole = (myMembership as unknown as { roles?: { name?: string } } | null)?.roles?.name
+    if (myRole === "sub_team_lead" || myRole === "assistant_lead") {
+      return { error: "Team leads cannot remove themselves." }
+    }
+  }
+
   const { error } = await supabase
     .from("sub_team_memberships")
     .delete()

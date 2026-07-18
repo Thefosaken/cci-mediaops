@@ -1,20 +1,27 @@
 import { Suspense } from "react"
-import { requireAuth, getCurrentUserWithRole } from "@/lib/auth/auth-helpers"
+import { requireAuth } from "@/lib/auth/auth-helpers"
 import { createClient } from "@/lib/supabase/server"
 import { SubTeamsPageClient } from "./sub-teams-page-client"
+import type { UserRole } from "@/types"
 
 export const dynamic = "force-dynamic"
 
 export default async function SubTeamsPage() {
   const currentUser = await requireAuth()
-  const userWithRole = await getCurrentUserWithRole()
   const supabase = await createClient()
 
-  const adminRoleName = (userWithRole as unknown as { campus_memberships?: { roles?: { name?: string } }[] } | null)
-    ?.campus_memberships?.[0]?.roles?.name
-  const isAdmin = adminRoleName === "super_admin" || adminRoleName === "media_admin"
+  const membership = await supabase
+    .from("campus_memberships")
+    .select("role_id, roles(name)")
+    .eq("user_id", currentUser.id)
+    .eq("status", "active")
+    .maybeSingle()
+    .then((r) => r.data)
 
-  const [subTeamsRes, usersRes, rolesRes, myMembershipsRes, myJoinRequestsRes, allJoinRequestsRes] = await Promise.all([
+  const rawRole = (membership as unknown as { roles?: { name?: string } } | null)?.roles?.name as UserRole | undefined
+  const isAdmin = rawRole === "super_admin" || rawRole === "media_admin"
+
+  const [allSubTeamsRes, usersRes, rolesRes, myMembershipsRes, myJoinRequestsRes, allJoinRequestsRes] = await Promise.all([
     supabase
       .from("sub_teams")
       .select("id, name, description, status, sub_team_memberships(role_id, users:user_id(id, full_name, email), roles:role_id(id, name)), tasks(id, title, status, assigned_user_id, due_date, priority)")
@@ -37,8 +44,15 @@ export default async function SubTeamsPage() {
       .eq("status", "pending"),
   ])
 
-  const subTeams = subTeamsRes.data ?? []
+  const myMemberships = (myMembershipsRes.data ?? []) as unknown as { sub_team_id: string; role_id: string | null; roles: { name: string } | null }[]
+  const mySubTeamIds = myMemberships.map((m) => m.sub_team_id)
+
+  const allSubTeams = allSubTeamsRes.data ?? []
+  const subTeams = isAdmin ? allSubTeams : allSubTeams.filter((s) => mySubTeamIds.includes(s.id))
   const subTeamIds = subTeams.map((s) => s.id)
+
+  const allPending = allJoinRequestsRes.data ?? []
+  const filteredPendingRequests = isAdmin ? allPending : allPending.filter((r) => subTeamIds.includes((r as { sub_team_id: string }).sub_team_id))
 
   const reqJoinsRes = subTeamIds.length
     ? await supabase
@@ -64,9 +78,9 @@ export default async function SubTeamsPage() {
         equipment={equipRes.data ?? []}
         currentUserId={currentUser.id}
         isAdmin={isAdmin}
-        myMemberships={(myMembershipsRes.data ?? []) as unknown as Parameters<typeof SubTeamsPageClient>[0]["myMemberships"]}
+        myMemberships={myMemberships as unknown as Parameters<typeof SubTeamsPageClient>[0]["myMemberships"]}
         myJoinRequests={myJoinRequestsRes.data ?? []}
-        pendingJoinRequests={(allJoinRequestsRes.data ?? []) as unknown as Parameters<typeof SubTeamsPageClient>[0]["pendingJoinRequests"]}
+        pendingJoinRequests={filteredPendingRequests as unknown as Parameters<typeof SubTeamsPageClient>[0]["pendingJoinRequests"]}
       />
     </Suspense>
   )

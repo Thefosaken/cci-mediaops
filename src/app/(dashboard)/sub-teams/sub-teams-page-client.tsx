@@ -145,6 +145,10 @@ export function SubTeamsPageClient({
   }
   async function removeMember(userId: string) {
     if (!active) return
+    if (isLeadHere && userId === currentUserId) {
+      toastError("You cannot remove yourself as a team lead.")
+      return
+    }
     const r = await removeSubTeamMember(active.id, userId)
     if (r.error) toastError(r.error)
     else { success("Member removed"); router.refresh() }
@@ -344,22 +348,28 @@ export function SubTeamsPageClient({
                                 {ROLE_LABELS[m.roles.name] ?? m.roles.name}
                               </Badge>
                             )}
-                            <DropdownMenu trigger={
-                              <IconButton label="Member actions" size="xs" variant="ghost">
-                                <MoreHorizontal className="h-3 w-3" />
-                              </IconButton>
-                            }>
-                              <DropdownMenuLabel>Member</DropdownMenuLabel>
-                              {!isLead && leadRoleId && (
-                                <DropdownMenuItem icon={<Star />} onSelect={() => promoteToLead(m.users!.id)}>
-                                  Promote to lead
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem icon={<Trash2 />} variant="danger" onSelect={() => m.users && removeMember(m.users.id)}>
-                                Remove
-                              </DropdownMenuItem>
-                            </DropdownMenu>
+                            {(canModerate || m.users?.id === currentUserId) && (
+                              <DropdownMenu trigger={
+                                <IconButton label="Member actions" size="xs" variant="ghost">
+                                  <MoreHorizontal className="h-3 w-3" />
+                                </IconButton>
+                              }>
+                                <DropdownMenuLabel>Member</DropdownMenuLabel>
+                                {canModerate && !isLead && leadRoleId && (
+                                  <DropdownMenuItem icon={<Star />} onSelect={() => promoteToLead(m.users!.id)}>
+                                    Promote to lead
+                                  </DropdownMenuItem>
+                                )}
+                                {canModerate && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem icon={<Trash2 />} variant="danger" onSelect={() => m.users && removeMember(m.users.id)}>
+                                      {m.users?.id === currentUserId ? "Leave team" : "Remove"}
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenu>
+                            )}
                           </li>
                         )
                       })}

@@ -86,7 +86,7 @@ export const CONFIRMATION_STATUSES = [
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Admin",
   media_admin: "Media Admin",
-  sub_team_lead: "Sub-Team Lead",
+  sub_team_lead: "Team Lead",
   assistant_lead: "Assistant Lead",
   team_member: "Team Member",
   requester: "Requester",
