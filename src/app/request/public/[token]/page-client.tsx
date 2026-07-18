@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select"
 import { DatePicker } from "@/components/ui/date-picker"
 import { FormField } from "@/components/ui/form-field"
 import { PRIORITIES, REQUESTING_UNITS } from "@/constants"
-import { submitPublicRequest } from "@/server/actions/public-requests"
+import { submitPublicRequest, getActiveSubTeams } from "@/server/actions/public-requests"
 import type { PublicRequestInput } from "@/lib/validators"
 
 type SubTeamOption = { id: string; name: string }
@@ -37,12 +37,9 @@ export function PublicRequestForm({ token }: { token: string }) {
   const dateFilled = format(new Date(), "MMM d, yyyy")
 
   useEffect(() => {
-    async function load() {
-      const { getActiveSubTeams } = await import("@/server/actions/public-requests")
-      const teams = await getActiveSubTeams()
-      setSubTeams(teams)
-    }
-    load()
+    getActiveSubTeams().then((teams) => {
+      setSubTeams(teams ?? [])
+    })
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {

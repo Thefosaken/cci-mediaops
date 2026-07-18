@@ -524,19 +524,14 @@ function PublicLinkModal({
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
-  const [label, setLabel] = useState("")
   const [saving, setSaving] = useState(false)
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
   async function create() {
-    if (!label.trim()) {
-      toastError("Add a label.")
-      return
-    }
     setSaving(true)
     const { generatePublicLink } = await import("@/server/actions/public-links")
-    const r = await generatePublicLink({ label: label.trim() })
+    const r = await generatePublicLink()
     setSaving(false)
     if (r.error) { toastError(r.error); return }
     const url = `${window.location.origin}/request/public/${r.data!.token}`
@@ -552,7 +547,6 @@ function PublicLinkModal({
   }
 
   function handleClose() {
-    setLabel("")
     setGeneratedUrl(null)
     setCopied(false)
     onClose()
@@ -578,10 +572,6 @@ function PublicLinkModal({
         size="sm"
       >
         <div className="space-y-4 py-2">
-          <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3">
-            <p className="text-[11.5px] text-faint mb-1.5">Link label</p>
-            <p className="text-[13px] font-medium text-foreground">{label}</p>
-          </div>
           <FormField label="Link URL">
             <div className="flex items-center gap-2">
               <Input
@@ -605,30 +595,21 @@ function PublicLinkModal({
       open={open}
       onClose={handleClose}
       title="Generate public request link"
-      description="Anyone with this link can submit a request without logging in."
+      description="A link will be created and copied to your clipboard."
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={handleClose} disabled={saving}>Cancel</Button>
-          <Button onClick={create} loading={saving} disabled={saving || !label.trim()}>
+          <Button onClick={create} loading={saving} disabled={saving}>
             <Link2 className="h-3.5 w-3.5" /> Generate
           </Button>
         </>
       }
     >
       <div className="space-y-3 py-2">
-        <FormField label="Link label" required helper="e.g. Teens Church Requests">
-          <Input
-            autoFocus
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g. Teens Church Design Requests"
-            autoComplete="off"
-          />
-        </FormField>
         <div className="rounded-lg border border-info/20 bg-info-soft/20 px-3 py-2.5">
           <p className="text-[12px] text-info">
-            The person submitting the request will select which team to route to.
+            Anyone with this link can submit a media request without logging in.
           </p>
         </div>
       </div>
