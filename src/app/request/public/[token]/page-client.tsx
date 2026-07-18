@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { format } from "date-fns"
 import { Inbox, CheckCircle2, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select"
 import { DatePicker } from "@/components/ui/date-picker"
 import { FormField } from "@/components/ui/form-field"
 import { PRIORITIES, REQUESTING_UNITS } from "@/constants"
-import { submitPublicRequest, getActiveSubTeams } from "@/server/actions/public-requests"
+import { submitPublicRequest } from "@/server/actions/public-requests"
 import type { PublicRequestInput } from "@/lib/validators"
 
 type SubTeamOption = { id: string; name: string }
@@ -26,21 +26,14 @@ const EMPTY_FORM: PublicRequestInput = {
   priority: "normal",
 }
 
-export function PublicRequestForm({ token }: { token: string }) {
+export function PublicRequestForm({ token, subTeams }: { token: string; subTeams: SubTeamOption[] }) {
   const [submitted, setSubmitted] = useState(false)
   const [trackingId, setTrackingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [subTeams, setSubTeams] = useState<SubTeamOption[]>([])
   const [form, setForm] = useState(EMPTY_FORM)
   const [unitCustom, setUnitCustom] = useState(false)
   const dateFilled = format(new Date(), "MMM d, yyyy")
-
-  useEffect(() => {
-    getActiveSubTeams().then((teams) => {
-      setSubTeams(teams ?? [])
-    })
-  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
