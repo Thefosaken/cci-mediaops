@@ -50,7 +50,9 @@ const PERMISSION_MATRIX: Record<UserRole, Record<string, PermissionCheck[]>> = {
     campus: [],
     sub_teams: ["view"],
     events: ["view"],
-    schedules: ["view", "edit"],
+    // Assistants build monthly schedules alongside leads, so they need create, not
+    // just edit on someone else's roster.
+    schedules: ["view", "create", "edit"],
     requests: ["view"],
     tasks: ["view", "create", "edit"],
     equipment: ["view", "create", "edit"],

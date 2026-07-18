@@ -294,6 +294,33 @@ export interface RunSheetSessionMember {
   updated_at: string
 }
 
+export type DutyStatus = "scheduled" | "confirmed" | "declined" | "swapped_out"
+
+/**
+ * Someone rostered to a team for a day.
+ *
+ * Distinct from RunSheetSessionMember, which assigns a person to one item inside a
+ * built run sheet. Duty is planned weeks ahead at day granularity, so it stands alone:
+ * `event_id` links it to a service when one exists, but a duty can be created for a
+ * date the calendar knows nothing else about yet.
+ */
+export interface DutyAssignment {
+  id: string
+  campus_id: string
+  sub_team_id: string
+  user_id: string
+  /** ISO date (no time) — the day being rostered. */
+  duty_date: string
+  event_id: string | null
+  role_title: string | null
+  call_time: string | null
+  status: DutyStatus
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface EquipmentItem {
   id: string
   campus_id: string

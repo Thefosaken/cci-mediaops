@@ -1,461 +1,715 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { format, isPast, isToday, isFuture } from "date-fns"
+import Link from "next/link"
 import {
-  Calendar as CalendarIcon, MapPin, Plus, Search, Filter,
-  Copy, X as XIcon, MoreHorizontal, ListChecks, ScrollText,
+  addMonths,
+  addWeeks,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameDay,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns"
+import {
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  ScrollText,
+  Trash2,
+  Check,
+  X as XIcon,
 } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
-import { useToast } from "@/lib/toast/toast-context"
-import { useUrlState } from "@/lib/hooks/use-url-state"
-import { EVENT_TYPES } from "@/constants"
-import { cn } from "@/lib/utils/cn"
-import type { Event } from "@/types"
 
-type SubTeamLite = { id: string; name: string }
+import { cn } from "@/lib/utils/cn"
+import { useToast } from "@/lib/toast/toast-context"
+import { assignDutyBulk, removeDuty, respondToDuty } from "@/server/actions/duties"
+import { resolveTeamColor, TEAM_COLORS, type TeamColor } from "./team-colors"
+import { MonthGrid, WeekGrid, type CalendarEntry } from "./calendar-grid"
 
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar, ToolbarGroup } from "@/components/ui/toolbar"
 import { Button, IconButton } from "@/components/ui/button"
-import { Input, Textarea } from "@/components/ui/input"
 import { Modal } from "@/components/ui/modal"
 import { SidePanel } from "@/components/ui/side-panel"
 import { Select } from "@/components/ui/select"
-import { Combobox } from "@/components/ui/combobox"
-import { DateInput } from "@/components/ui/date-input"
-import { Badge } from "@/components/ui/badge"
-import { StatusBadge } from "@/components/ui/status-badge"
-import { EmptyState } from "@/components/ui/empty-state"
 import { FormField } from "@/components/ui/form-field"
-import { DataList, DataItem } from "@/components/ui/data-list"
-import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
-import { duplicateEventTemplate, cancelEvent } from "@/server/actions/events"
+import { Badge } from "@/components/ui/badge"
 
-type EventWithTeams = Event & {
-  event_sub_teams?: { sub_team_id: string; sub_teams?: { id: string; name: string } | null }[]
+/**
+ * Calendar.
+ *
+ * Follows the model Google and Notion share: a month grid by default with a week view
+ * available, a rail of toggleable calendars, and a day panel for detail. The
+ * multi-account overlay maps onto sub-teams — each team has a stable colour, admins
+ * see every team at once, everyone else starts on their own.
+ *
+ * Three things live here: services (events), duties (who is rostered), and a link
+ * through to a day's run sheet when one exists.
+ */
+
+interface EventRow {
+  id: string
+  title: string
+  event_type: string
+  start_time: string
+  end_time: string | null
+  status: string
+  location: string | null
+  event_sub_teams: { sub_team_id: string }[]
 }
 
-const EVENT_TYPE_COLORS: Record<string, string> = {
-  sunday_service: "bg-info",
-  midweek_service: "bg-success",
-  worship_night: "bg-primary",
-  conference: "bg-warning",
-  training: "bg-muted",
-  rehearsal: "bg-muted",
-  outreach: "bg-success",
-  campus_event: "bg-info",
-  department_event: "bg-warning",
-  special_programme: "bg-danger",
+interface DutyRow {
+  id: string
+  user_id: string
+  sub_team_id: string
+  duty_date: string
+  event_id: string | null
+  role_title: string | null
+  call_time: string | null
+  status: string
+  users: { id: string; full_name: string } | null
+  sub_teams: { id: string; name: string; color: string | null } | null
 }
 
-const EMPTY_FORM = {
-  title: "",
-  eventType: "sunday_service",
-  description: "",
-  location: "",
-  startTime: "",
-  endTime: "",
-  requiredSubTeams: [] as string[],
+interface Props {
+  events: EventRow[]
+  subTeams: { id: string; name: string; color: string | null }[]
+  duties: DutyRow[]
+  runSheets: { id: string; title: string; event_id: string | null; sheet_date: string | null }[]
+  users: { id: string; full_name: string }[]
+  myTeamIds: string[]
+  currentUserId: string
+  canSchedule: boolean
+  seesAllTeams: boolean
 }
 
-type Filter = "upcoming" | "past" | "all"
+type View = "month" | "week"
 
 export function CalendarPageClient({
   events,
   subTeams,
-}: {
-  events: EventWithTeams[]
-  subTeams: SubTeamLite[]
-}) {
+  duties,
+  runSheets,
+  users,
+  myTeamIds,
+  currentUserId,
+  canSchedule,
+  seesAllTeams,
+}: Props) {
   const router = useRouter()
-  const { success, error: toastError } = useToast()
-  const { get, set, clear } = useUrlState()
+  const toast = useToast()
+  const [pending, startTransition] = useTransition()
 
-  const detailId = get("id")
-  const showNew = get("new") === "1"
+  const [view, setView] = useState<View>("month")
+  const [cursor, setCursor] = useState(() => new Date())
+  const [selected, setSelected] = useState<Date | null>(null)
+  const [scheduling, setScheduling] = useState(false)
 
-  const [filter, setFilter] = useState<Filter>("upcoming")
-  const [query, setQuery] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState(EMPTY_FORM)
+  /**
+   * Which team calendars are showing. Admins start with all of them overlaid — the
+   * multi-account view — while everyone else starts on their own team, since that is
+   * the rota they work from.
+   */
+  const [visibleTeams, setVisibleTeams] = useState<Set<string>>(() =>
+    seesAllTeams || myTeamIds.length === 0
+      ? new Set(subTeams.map((t) => t.id))
+      : new Set(myTeamIds)
+  )
+  const [showEvents, setShowEvents] = useState(true)
+  /** The fastest answer to "when am I on duty" on a busy overlay. */
+  const [onlyMine, setOnlyMine] = useState(false)
 
-  const detail = useMemo(() => events.find((e) => e.id === detailId) ?? null, [events, detailId])
-
-  // Reset form when opening
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (showNew) setForm(EMPTY_FORM) }, [showNew])
-
-  const filtered = useMemo(() => {
-    let list = events
-    if (filter === "upcoming") list = list.filter((e) => !isPast(new Date(e.start_time)) || isToday(new Date(e.start_time)))
-    if (filter === "past") list = list.filter((e) => isPast(new Date(e.start_time)) && !isToday(new Date(e.start_time)))
-    if (query.trim()) {
-      const q = query.toLowerCase()
-      list = list.filter((e) =>
-        e.title.toLowerCase().includes(q) ||
-        (e.location ?? "").toLowerCase().includes(q) ||
-        (e.event_type ?? "").toLowerCase().includes(q)
-      )
-    }
-    return list
-  }, [events, filter, query])
-
-  const grouped = useMemo(() => {
-    const map = new Map<string, EventWithTeams[]>()
-    for (const e of filtered) {
-      const key = format(new Date(e.start_time), "MMMM yyyy")
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(e)
-    }
+  const colorFor = useMemo(() => {
+    const map = new Map<string, TeamColor>()
+    subTeams.forEach((t, i) => map.set(t.id, resolveTeamColor(t.color, i)))
     return map
-  }, [filtered])
+  }, [subTeams])
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.title.trim() || !form.startTime) return
-    setLoading(true)
-    try {
-      const supabase = createClient()
-      const { data: campus } = await supabase.from("campuses").select("id").limit(1).single()
-      if (!campus) throw new Error("No campus found")
-
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      const { data: user } = await supabase
-        .from("users").select("id").eq("auth_user_id", authUser?.id).single()
-
-      const { data: event, error } = await supabase
-        .from("events")
-        .insert({
-          campus_id: campus.id,
-          title: form.title,
-          event_type: form.eventType,
-          description: form.description || null,
-          location: form.location || null,
-          start_time: form.startTime,
-          end_time: form.endTime || null,
-          status: "draft",
-          created_by: user?.id,
-        }).select().single()
-      if (error) throw new Error(error.message)
-
-      if (event && form.requiredSubTeams.length > 0) {
-        await supabase.from("event_sub_teams").insert(
-          form.requiredSubTeams.map((st) => ({ event_id: event.id, sub_team_id: st }))
-        )
-      }
-      clear("new")
-      success("Event created", { label: "Open", onClick: () => set({ id: event!.id }) })
-      router.refresh()
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : "Failed to create event")
-    } finally {
-      setLoading(false)
+  const days = useMemo(() => {
+    if (view === "week") {
+      return eachDayOfInterval({ start: startOfWeek(cursor), end: endOfWeek(cursor) })
     }
-  }
+    // Always six rows, so the grid keeps a constant height month to month.
+    const start = startOfWeek(startOfMonth(cursor))
+    return eachDayOfInterval({ start, end: addWeeks(start, 6) }).slice(0, 42)
+  }, [cursor, view])
 
-  async function handleDuplicate(id: string) {
-    const r = await duplicateEventTemplate(id)
-    if (r.error) toastError(r.error)
-    else { success("Event duplicated"); router.refresh() }
-  }
+  const entriesByDay = useMemo(() => {
+    const map = new Map<string, CalendarEntry[]>()
+    const push = (d: Date, e: CalendarEntry) => {
+      const key = d.toDateString()
+      map.set(key, [...(map.get(key) ?? []), e])
+    }
 
-  async function handleCancel(id: string) {
-    const r = await cancelEvent(id)
-    if (r.error) toastError(r.error)
-    else { success("Event cancelled"); router.refresh(); clear("id") }
-  }
+    if (showEvents && !onlyMine) {
+      for (const ev of events) {
+        const at = new Date(ev.start_time)
+        push(at, {
+          id: `event-${ev.id}`,
+          kind: "event",
+          date: at,
+          label: ev.title,
+          meta: format(at, "h:mm a"),
+          color: null,
+        })
+      }
+    }
+
+    for (const d of duties) {
+      if (!visibleTeams.has(d.sub_team_id)) continue
+      const mine = d.user_id === currentUserId
+      if (onlyMine && !mine) continue
+
+      // Midday avoids any timezone drift pushing a date-only duty onto the wrong day.
+      const at = new Date(`${d.duty_date}T12:00:00`)
+      push(at, {
+        id: `duty-${d.id}`,
+        kind: "duty",
+        date: at,
+        label: d.users?.full_name ?? "Unassigned",
+        meta: d.sub_teams?.name,
+        color: colorFor.get(d.sub_team_id) ?? null,
+        mine,
+        dimmed: d.status === "declined",
+      })
+    }
+
+    return map
+  }, [events, duties, visibleTeams, showEvents, onlyMine, currentUserId, colorFor])
+
+  const selectedDay = useMemo(() => {
+    if (!selected) return null
+    return {
+      date: selected,
+      events: events.filter((e) => isSameDay(new Date(e.start_time), selected)),
+      duties: duties.filter((d) => isSameDay(new Date(`${d.duty_date}T12:00:00`), selected)),
+      entries: entriesByDay.get(selected.toDateString()) ?? [],
+    }
+  }, [selected, events, duties, entriesByDay])
+
+  const title =
+    view === "month"
+      ? format(cursor, "MMMM yyyy")
+      : `${format(startOfWeek(cursor), "d MMM")} – ${format(endOfWeek(cursor), "d MMM yyyy")}`
+
+  const step = (dir: -1 | 1) =>
+    setCursor((c) => (view === "month" ? addMonths(c, dir) : addWeeks(c, dir)))
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
       <PageHeader
         title="Calendar"
-        description="Services, events, rehearsals, and deadlines"
+        description="Services, duties and who is on when"
         icon={<CalendarIcon />}
         actions={
-          <Button size="sm" onClick={() => set({ new: "1" })}>
-            <Plus className="h-3.5 w-3.5" /> New event
-          </Button>
+          canSchedule ? (
+            <Button size="sm" onClick={() => setScheduling(true)}>
+              <Plus className="size-4" /> Schedule people
+            </Button>
+          ) : undefined
         }
       />
 
-      <Toolbar>
-        <ToolbarGroup>
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search events…"
-            leadingIcon={<Search />}
-            className="h-8 w-[260px]"
-          />
-          <span className="hidden sm:inline-flex items-center gap-1 text-[12px] text-faint">
-            <Filter className="h-3 w-3" /> View:
-          </span>
-          <div className="inline-flex rounded-md border border-border bg-surface p-0.5">
-            {(["upcoming", "past", "all"] as Filter[]).map((f) => (
+      {/* ── Toolbar ───────────────────────────────────────────── */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-5 py-2.5 sm:px-6">
+        <div className="flex items-center gap-1">
+          <IconButton label="Previous" size="sm" variant="ghost" onClick={() => step(-1)}>
+            <ChevronLeft className="size-4" />
+          </IconButton>
+          <IconButton label="Next" size="sm" variant="ghost" onClick={() => step(1)}>
+            <ChevronRight className="size-4" />
+          </IconButton>
+          <Button size="sm" variant="outline" onClick={() => setCursor(new Date())}>
+            Today
+          </Button>
+        </div>
+
+        <h2 className="min-w-0 text-[15px] font-semibold tracking-tight text-foreground">
+          {title}
+        </h2>
+
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setOnlyMine((v) => !v)}
+            className={cn(
+              "rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors duration-150",
+              onlyMine
+                ? "border-primary bg-primary text-[var(--color-primary-foreground)]"
+                : "border-border bg-surface text-muted hover:text-foreground"
+            )}
+          >
+            Only mine
+          </button>
+
+          <div className="flex items-center gap-0.5 rounded-md bg-[var(--color-canvas)] p-0.5">
+            {(["month", "week"] as const).map((v) => (
               <button
-                key={f}
-                onClick={() => setFilter(f)}
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
                 className={cn(
-                  "px-2.5 py-1 text-[12px] font-medium rounded-[5px] capitalize transition-colors",
-                  filter === f
-                    ? "bg-surface-subtle text-foreground"
+                  "rounded px-2.5 py-1 text-[12px] font-medium capitalize transition-colors duration-150",
+                  view === v
+                    ? "bg-surface text-foreground shadow-[var(--shadow-sm)]"
                     : "text-muted hover:text-foreground"
                 )}
               >
-                {f}
+                {v}
               </button>
             ))}
           </div>
-        </ToolbarGroup>
-        <span className="text-[11.5px] text-faint tabular-nums">
-          {filtered.length} {filtered.length === 1 ? "event" : "events"}
-        </span>
-      </Toolbar>
-
-      <div className="px-5 sm:px-6 py-6 space-y-6">
-        {filtered.length === 0 ? (
-          <EmptyState
-            icon={<CalendarIcon />}
-            title={events.length === 0 ? "No events yet" : "No matching events"}
-            description={
-              events.length === 0
-                ? "Create your first event to start planning your media schedule."
-                : "Try a different search or switch the view."
-            }
-            action={events.length === 0 ? { label: "Create event", onClick: () => set({ new: "1" }) } : undefined}
-          />
-        ) : (
-          Array.from(grouped.entries()).map(([month, monthEvents]) => (
-            <div key={month}>
-              <div className="flex items-center gap-3 mb-2">
-                <p className="text-[10.5px] font-semibold text-faint uppercase tracking-wider">
-                  {month}
-                </p>
-                <div className="h-px flex-1 bg-border" aria-hidden="true" />
-                <span className="text-[10.5px] text-faint tabular-nums">{monthEvents.length}</span>
-              </div>
-              <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
-                {monthEvents.map((event) => {
-                  const start = new Date(event.start_time)
-                  const typeColor = EVENT_TYPE_COLORS[event.event_type ?? ""] ?? "bg-muted"
-                  const typeLabel = EVENT_TYPES.find((t) => t.value === event.event_type)?.label
-                  return (
-                    <button
-                      key={event.id}
-                      type="button"
-                      onClick={() => set({ id: event.id })}
-                      className="group flex items-center gap-3 px-4 py-3 w-full text-left hover:bg-surface-hover transition-colors"
-                    >
-                      {/* Type indicator */}
-                      <div className={cn("h-7 w-0.5 rounded-full shrink-0", typeColor)} aria-hidden="true" />
-
-                      {/* Date */}
-                      <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-md bg-surface-subtle border border-border leading-none">
-                        <span className="text-[8.5px] font-semibold uppercase tracking-wider text-faint">
-                          {format(start, "MMM")}
-                        </span>
-                        <span className="text-[14px] font-semibold tabular-nums">
-                          {format(start, "d")}
-                        </span>
-                      </div>
-
-                      {/* Title + meta */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[13.5px] font-medium text-foreground truncate">
-                            {event.title}
-                          </span>
-                          {typeLabel && <Badge variant="muted" size="sm">{typeLabel}</Badge>}
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted">
-                          <span className="tabular-nums">{format(start, "EEE · h:mm a")}</span>
-                          {event.location && (
-                            <>
-                              <span className="text-faint">·</span>
-                              <MapPin className="h-3 w-3" aria-hidden="true" />
-                              <span className="truncate max-w-[200px]">{event.location}</span>
-                            </>
-                          )}
-                          {event.event_sub_teams && event.event_sub_teams.length > 0 && (
-                            <>
-                              <span className="text-faint">·</span>
-                              <span className="text-faint">{event.event_sub_teams.length} sub-teams</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      <StatusBadge status={event.status ?? "draft"} size="sm" />
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))
-        )}
+        </div>
       </div>
 
-      {/* Create modal */}
-      <Modal
-        open={showNew}
-        onClose={() => clear("new")}
-        title="New event"
-        description="Add a service, rehearsal, or event to the calendar."
-        size="lg"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => clear("new")} disabled={loading}>Cancel</Button>
-            <Button type="submit" form="create-event-form" loading={loading} disabled={loading}>
-              Create event
-            </Button>
-          </>
-        }
-      >
-        <form id="create-event-form" onSubmit={handleCreate} className="space-y-4 py-2">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Event title" required className="sm:col-span-2">
-              <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder="e.g. Sunday Morning Service" required autoFocus />
-            </FormField>
-            <FormField label="Event type">
-              <Select
-                value={form.eventType}
-                onChange={(v) => setForm({ ...form, eventType: v })}
-                options={EVENT_TYPES.map((t) => ({ value: t.value, label: t.label }))}
-              />
-            </FormField>
-            <FormField label="Location" helper="Optional venue or room">
-              <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
-                placeholder="e.g. Main Auditorium" />
-            </FormField>
-            <FormField label="Start" required>
-              <DateInput type="datetime-local" value={form.startTime}
-                onChange={(e) => setForm({ ...form, startTime: e.target.value })} required />
-            </FormField>
-            <FormField label="End" helper="Optional">
-              <DateInput type="datetime-local" value={form.endTime}
-                onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
-            </FormField>
-          </div>
-          <FormField label="Description" helper="What's happening at this event?">
-            <Textarea value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Add context for the team…" />
-          </FormField>
-          <FormField label="Required sub-teams" helper="Add any teams that need to plan for this">
-            <Combobox values={form.requiredSubTeams}
-              onChange={(v) => setForm({ ...form, requiredSubTeams: v })}
-              options={subTeams.map((s) => ({ value: s.id, label: s.name }))}
-              placeholder="Select sub-teams…" />
-          </FormField>
-        </form>
-      </Modal>
+      <div className="flex min-h-0 flex-1">
+        {/* ── Calendar rail ───────────────────────────────────── */}
+        <aside className="hidden w-[200px] shrink-0 overflow-y-auto border-r border-border p-3 lg:block">
+          <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-faint">
+            Calendars
+          </p>
+          <Toggle
+            label="Services"
+            checked={showEvents}
+            onChange={() => setShowEvents((v) => !v)}
+            swatch="bg-muted"
+          />
 
-      {/* Detail side panel */}
-      <SidePanel
-        open={!!detail}
-        onClose={() => clear("id")}
-        title={detail?.title ?? "Event"}
-        headerSlot={detail && <StatusBadge status={detail.status ?? "draft"} size="sm" />}
-        size="lg"
-        footer={
-          detail && (
-            <>
-              <DropdownMenu
-                trigger={
-                  <Button variant="ghost" size="sm">
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </Button>
+          <p className="mb-2 mt-4 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-faint">
+            Teams
+          </p>
+          <div className="space-y-0.5">
+            {subTeams.map((t) => (
+              <Toggle
+                key={t.id}
+                label={t.name}
+                checked={visibleTeams.has(t.id)}
+                swatch={TEAM_COLORS[colorFor.get(t.id) ?? "blue"].dot}
+                onChange={() =>
+                  setVisibleTeams((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(t.id)) next.delete(t.id)
+                    else next.add(t.id)
+                    return next
+                  })
                 }
-              >
-                <DropdownMenuItem icon={<Copy />} onSelect={() => handleDuplicate(detail.id)}>
-                  Duplicate event
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem icon={<XIcon />} variant="danger" onSelect={() => handleCancel(detail.id)}>
-                  Cancel event
-                </DropdownMenuItem>
-              </DropdownMenu>
-              <Button variant="secondary" size="sm" onClick={() => router.push(`/scheduling?event=${detail.id}`)}>
-                <ListChecks className="h-3.5 w-3.5" /> Schedule
-              </Button>
-              <Button size="sm" onClick={() => router.push(`/run-sheets?event=${detail.id}`)}>
-                <ScrollText className="h-3.5 w-3.5" /> Run sheet
-              </Button>
-            </>
-          )
-        }
-      >
-        {detail && <EventDetail event={detail} />}
-      </SidePanel>
+              />
+            ))}
+          </div>
+        </aside>
+
+        {/* ── Grid ────────────────────────────────────────────── */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {view === "month" ? (
+            <MonthGrid
+              days={days}
+              month={cursor}
+              entriesByDay={entriesByDay}
+              selected={selected}
+              onSelectDay={setSelected}
+            />
+          ) : (
+            <WeekGrid
+              days={days}
+              entriesByDay={entriesByDay}
+              selected={selected}
+              onSelectDay={setSelected}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* ── Day detail ────────────────────────────────────────── */}
+      {selectedDay && (
+        <SidePanel
+          open
+          onClose={() => setSelected(null)}
+          title={format(selectedDay.date, "EEEE d MMMM")}
+          headerSlot={
+            <span className="text-[12px] text-muted">
+              {selectedDay.entries.length} item{selectedDay.entries.length === 1 ? "" : "s"}
+            </span>
+          }
+        >
+          <div className="divide-y divide-border-subtle">
+            <section className="p-5">
+              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                Services
+              </h3>
+              {selectedDay.events.length === 0 ? (
+                <p className="text-[12.5px] text-faint">Nothing scheduled</p>
+              ) : (
+                <ul className="space-y-2">
+                  {selectedDay.events.map((ev) => {
+                    const sheet = runSheets.find(
+                      (r) =>
+                        r.event_id === ev.id ||
+                        (r.sheet_date && isSameDay(new Date(r.sheet_date), selectedDay.date))
+                    )
+                    return (
+                      <li key={ev.id} className="rounded-md border border-border bg-surface p-3">
+                        <p className="text-[13px] font-medium text-foreground">{ev.title}</p>
+                        <p className="mt-0.5 text-[11.5px] tabular-nums text-muted">
+                          {format(new Date(ev.start_time), "h:mm a")}
+                          {ev.location && ` · ${ev.location}`}
+                        </p>
+                        {sheet && (
+                          <Link
+                            href={`/run-sheets/${sheet.id}`}
+                            className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-primary hover:underline"
+                          >
+                            <ScrollText className="size-3.5" />
+                            Open run sheet
+                          </Link>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
+
+            <section className="p-5">
+              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                On duty
+              </h3>
+              {selectedDay.duties.length === 0 ? (
+                <p className="text-[12.5px] text-faint">Nobody rostered yet</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {selectedDay.duties.map((d) => {
+                    const mine = d.user_id === currentUserId
+                    const palette = TEAM_COLORS[colorFor.get(d.sub_team_id) ?? "blue"]
+                    return (
+                      <li
+                        key={d.id}
+                        className="group flex items-center gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2"
+                      >
+                        <span className={cn("size-2 shrink-0 rounded-full", palette.dot)} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] text-foreground">
+                            {d.users?.full_name ?? "Unassigned"}
+                          </span>
+                          <span className="block truncate text-[11px] text-muted">
+                            {d.sub_teams?.name}
+                            {d.role_title && ` · ${d.role_title}`}
+                          </span>
+                        </span>
+
+                        {d.status !== "scheduled" && (
+                          <Badge variant={d.status === "declined" ? "danger" : "neutral"}>
+                            {d.status}
+                          </Badge>
+                        )}
+
+                        {/* Responding to your own duty needs no scheduling permission. */}
+                        {mine && d.status === "scheduled" && (
+                          <span className="flex gap-1">
+                            <IconButton
+                              label="Accept"
+                              size="xs"
+                              variant="ghost"
+                              onClick={() =>
+                                startTransition(async () => {
+                                  const r = await respondToDuty(d.id, "confirmed")
+                                  if (r.error) toast.error(r.error)
+                                  else router.refresh()
+                                })
+                              }
+                            >
+                              <Check className="size-3.5" />
+                            </IconButton>
+                            <IconButton
+                              label="Decline"
+                              size="xs"
+                              variant="ghost"
+                              onClick={() =>
+                                startTransition(async () => {
+                                  const r = await respondToDuty(d.id, "declined")
+                                  if (r.error) toast.error(r.error)
+                                  else router.refresh()
+                                })
+                              }
+                            >
+                              <XIcon className="size-3.5" />
+                            </IconButton>
+                          </span>
+                        )}
+
+                        {canSchedule && (
+                          <IconButton
+                            label="Remove"
+                            size="xs"
+                            variant="ghost"
+                            className="opacity-0 transition-opacity group-hover:opacity-100"
+                            onClick={() =>
+                              startTransition(async () => {
+                                const r = await removeDuty(d.id)
+                                if (r.error) toast.error(r.error)
+                                else router.refresh()
+                              })
+                            }
+                          >
+                            <Trash2 className="size-3.5" />
+                          </IconButton>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+
+              {canSchedule && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-3"
+                  onClick={() => setScheduling(true)}
+                >
+                  <Plus className="size-3.5" /> Schedule someone
+                </Button>
+              )}
+            </section>
+          </div>
+        </SidePanel>
+      )}
+
+      {scheduling && canSchedule && (
+        <ScheduleModal
+          month={cursor}
+          subTeams={seesAllTeams ? subTeams : subTeams.filter((t) => myTeamIds.includes(t.id))}
+          users={users}
+          colorFor={colorFor}
+          busy={pending}
+          onClose={() => setScheduling(false)}
+          onDone={(msg) => {
+            setScheduling(false)
+            toast.success(msg)
+            router.refresh()
+          }}
+          onError={toast.error}
+        />
+      )}
     </div>
   )
 }
 
-function EventDetail({ event }: { event: EventWithTeams }) {
-  const start = new Date(event.start_time)
-  const end = event.end_time ? new Date(event.end_time) : null
-  const teams = event.event_sub_teams?.map((j) => j.sub_teams?.name).filter(Boolean) as string[] | undefined
-  const upcomingOrLive = isFuture(start) || isToday(start)
+/* ────────────────────────────────────────────────────────────────── */
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+  swatch,
+}: {
+  label: string
+  checked: boolean
+  onChange: () => void
+  swatch: string
+}) {
   return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-subtle p-3">
-        <div className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-md bg-surface border border-border leading-none">
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-faint">
-            {format(start, "MMM")}
-          </span>
-          <span className="text-[15px] font-semibold tabular-nums">{format(start, "d")}</span>
+    <button
+      type="button"
+      onClick={onChange}
+      className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-subtle/60"
+    >
+      <span
+        className={cn(
+          "grid size-3.5 shrink-0 place-items-center rounded-[3px] border transition-colors",
+          checked ? cn(swatch, "border-transparent") : "border-border-strong"
+        )}
+      >
+        {checked && <Check className="size-2.5 text-black/70" />}
+      </span>
+      <span
+        className={cn(
+          "truncate text-[12.5px] transition-colors",
+          checked ? "text-foreground" : "text-faint"
+        )}
+      >
+        {label}
+      </span>
+    </button>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────── */
+
+/**
+ * Bulk rostering — the monthly-schedule case.
+ *
+ * Pick a person, a team and the days. The weekday shortcuts cover the common shape
+ * ("every Sunday in August") without real recurrence rules, which would be a much
+ * larger commitment for a pattern that gets hand-adjusted every month anyway.
+ */
+function ScheduleModal({
+  month,
+  subTeams,
+  users,
+  colorFor,
+  busy,
+  onClose,
+  onDone,
+  onError,
+}: {
+  month: Date
+  subTeams: { id: string; name: string; color: string | null }[]
+  users: { id: string; full_name: string }[]
+  colorFor: Map<string, TeamColor>
+  busy: boolean
+  onClose: () => void
+  onDone: (message: string) => void
+  onError: (message: string) => void
+}) {
+  const [userId, setUserId] = useState("")
+  const [subTeamId, setSubTeamId] = useState(subTeams[0]?.id ?? "")
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [saving, setSaving] = useState(false)
+
+  const days = useMemo(
+    () => eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) }),
+    [month]
+  )
+
+  const toggleDay = (iso: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(iso)) next.delete(iso)
+      else next.add(iso)
+      return next
+    })
+
+  /** Toggles every instance of a weekday — on unless they are all already on. */
+  const pickWeekday = (weekday: number) => {
+    const matching = days.filter((d) => d.getDay() === weekday).map(toIso)
+    setPicked((prev) => {
+      const next = new Set(prev)
+      const allOn = matching.every((d) => next.has(d))
+      matching.forEach((d) => (allOn ? next.delete(d) : next.add(d)))
+      return next
+    })
+  }
+
+  const submit = async () => {
+    setSaving(true)
+    const res = await assignDutyBulk({ userId, subTeamId, dates: [...picked].sort() })
+    setSaving(false)
+    if (res.error) return onError(res.error)
+    onDone(
+      res.skipped
+        ? `Scheduled ${res.added} day${res.added === 1 ? "" : "s"} · ${res.skipped} already covered`
+        : `Scheduled ${res.added} day${res.added === 1 ? "" : "s"}`
+    )
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Schedule people"
+      description={format(month, "MMMM yyyy")}
+      size="lg"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            loading={saving || busy}
+            disabled={!userId || !subTeamId || picked.size === 0}
+            onClick={submit}
+          >
+            Schedule{picked.size > 0 && ` ${picked.size} day${picked.size === 1 ? "" : "s"}`}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField label="Person" required>
+            <Select
+              value={userId}
+              onChange={setUserId}
+              searchable
+              placeholder="Choose someone…"
+              options={users.map((u) => ({ value: u.id, label: u.full_name }))}
+            />
+          </FormField>
+          <FormField label="Team" required>
+            <Select
+              value={subTeamId}
+              onChange={setSubTeamId}
+              options={subTeams.map((t) => ({ value: t.id, label: t.name }))}
+            />
+          </FormField>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-foreground tabular-nums">
-            {format(start, "EEEE, MMMM d")}
+
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11.5px] font-medium text-muted">Days</span>
+            <div className="flex gap-1">
+              {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => pickWeekday(i)}
+                  className="grid size-6 place-items-center rounded text-[11px] font-medium text-muted transition-colors hover:bg-surface-subtle hover:text-foreground"
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="text-[12px] text-muted tabular-nums">
-            {format(start, "h:mm a")}
-            {end && ` – ${format(end, "h:mm a")}`}
+
+          <div className="grid grid-cols-7 gap-1">
+            {/* Lead-in blanks so the 1st lands under its real weekday. */}
+            {Array.from({ length: startOfMonth(month).getDay() }).map((_, i) => (
+              <span key={`pad-${i}`} />
+            ))}
+            {days.map((d) => {
+              const iso = toIso(d)
+              const on = picked.has(iso)
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  onClick={() => toggleDay(iso)}
+                  className={cn(
+                    "grid h-9 place-items-center rounded-md border text-[12.5px] tabular-nums transition-colors duration-100",
+                    on
+                      ? "border-primary bg-primary font-medium text-[var(--color-primary-foreground)]"
+                      : "border-border bg-surface text-muted hover:border-border-strong hover:text-foreground"
+                  )}
+                >
+                  {format(d, "d")}
+                </button>
+              )
+            })}
           </div>
+
+          <p className="mt-2 text-[11.5px] text-faint">
+            Tap a weekday letter to select every one of them this month.
+          </p>
         </div>
-        {upcomingOrLive && (
-          <Badge variant={isToday(start) ? "default" : "info"} size="sm">
-            {isToday(start) ? "Today" : "Upcoming"}
-          </Badge>
+
+        {subTeamId && (
+          <p className="flex items-center gap-2 border-t border-border-subtle pt-3 text-[12px] text-muted">
+            <span
+              className={cn("size-2 rounded-full", TEAM_COLORS[colorFor.get(subTeamId) ?? "blue"].dot)}
+            />
+            Shows on the calendar in this colour
+          </p>
         )}
       </div>
-
-      <DataList>
-        <DataItem label="Type">
-          {EVENT_TYPES.find((t) => t.value === event.event_type)?.label ?? event.event_type}
-        </DataItem>
-        <DataItem label="Location">{event.location}</DataItem>
-        <DataItem label="Sub-teams">
-          {teams && teams.length > 0
-            ? (
-              <div className="flex flex-wrap gap-1">
-                {teams.map((t) => <Badge key={t} variant="muted" size="sm">{t}</Badge>)}
-              </div>
-            )
-            : null}
-        </DataItem>
-        <DataItem label="Description">
-          {event.description ? <p className="whitespace-pre-wrap">{event.description}</p> : null}
-        </DataItem>
-      </DataList>
-
-      <div className="rounded-lg border border-border bg-surface-subtle/40 p-3">
-        <p className="text-[11.5px] font-semibold uppercase tracking-wider text-faint mb-2">
-          Quick actions
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <a href={`/scheduling?event=${event.id}`} className="rounded-md border border-border bg-surface px-3 py-2 text-[12.5px] font-medium hover:bg-surface-hover transition-colors flex items-center gap-2">
-            <ListChecks className="h-3.5 w-3.5 text-faint" /> Build schedule
-          </a>
-          <a href={`/run-sheets?event=${event.id}`} className="rounded-md border border-border bg-surface px-3 py-2 text-[12.5px] font-medium hover:bg-surface-hover transition-colors flex items-center gap-2">
-            <ScrollText className="h-3.5 w-3.5 text-faint" /> Build run sheet
-          </a>
-        </div>
-      </div>
-    </div>
+    </Modal>
   )
+}
+
+/** Local-date ISO (yyyy-MM-dd) — toISOString would shift across the date line. */
+function toIso(d: Date) {
+  return format(d, "yyyy-MM-dd")
 }
