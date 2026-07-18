@@ -1,13 +1,27 @@
 import { Suspense } from "react"
 import { requireAuth } from "@/lib/auth/auth-helpers"
 import { createClient } from "@/lib/supabase/server"
+import { hasPermission } from "@/lib/permissions"
+import type { UserRole } from "@/types"
 import { RunSheetsPageClient } from "./run-sheets-page-client"
 
 export const dynamic = "force-dynamic"
 
 export default async function RunSheetsPage() {
-  await requireAuth()
+  const currentUser = await requireAuth()
   const supabase = await createClient()
+
+  const membership = await supabase
+    .from("campus_memberships")
+    .select("roles(name)")
+    .eq("user_id", currentUser.id)
+    .eq("status", "active")
+    .maybeSingle()
+    .then((r) => r.data)
+
+  const role = (membership as unknown as { roles?: { name?: string } } | null)?.roles
+    ?.name as UserRole | undefined
+  const canDelete = role ? hasPermission(role, "run_sheets", "delete") : false
 
   const [{ data: runSheets }, { data: events }, { data: templates }] = await Promise.all([
     supabase
@@ -37,6 +51,7 @@ export default async function RunSheetsPage() {
           >[0]["runSheets"]
         }
         events={events ?? []}
+        canDelete={canDelete}
         templates={
           (templates ?? []) as unknown as Parameters<
             typeof RunSheetsPageClient

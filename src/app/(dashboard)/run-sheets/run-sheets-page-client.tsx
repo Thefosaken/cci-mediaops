@@ -4,14 +4,14 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { format } from "date-fns"
-import { ScrollText, Plus, CalendarRange, LayoutTemplate } from "lucide-react"
+import { ScrollText, Plus, CalendarRange, LayoutTemplate, Trash2 } from "lucide-react"
 
 import { useToast } from "@/lib/toast/toast-context"
 import { useUrlState } from "@/lib/hooks/use-url-state"
-import { createStandaloneRunSheet, createFromTemplate } from "@/server/actions/run-sheets/templates"
+import { createStandaloneRunSheet, createFromTemplate, deleteRunSheet } from "@/server/actions/run-sheets/templates"
 
 import { PageHeader } from "@/components/ui/page-header"
-import { Button } from "@/components/ui/button"
+import { Button, IconButton } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Modal } from "@/components/ui/modal"
 import { Select } from "@/components/ui/select"
@@ -46,10 +46,13 @@ export function RunSheetsPageClient({
   runSheets,
   events,
   templates,
+  canDelete,
 }: {
   runSheets: RunSheet[]
   events: { id: string; title: string; start_time: string }[]
   templates: RunSheetTemplate[]
+  /** Delete is super_admin only in the permission matrix — see the run_sheets row. */
+  canDelete: boolean
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
@@ -57,6 +60,8 @@ export function RunSheetsPageClient({
 
   const [showNew, setShowNew] = useState(get("new") === "1")
   const [useTemplate, setUseTemplate] = useState<RunSheetTemplate | null>(null)
+  const [deleting, setDeleting] = useState<RunSheet | null>(null)
+  const [busy, setBusy] = useState(false)
 
   return (
     <div className="flex flex-col">
@@ -118,15 +123,15 @@ export function RunSheetsPageClient({
           ) : (
             <ul className="divide-y divide-border">
               {runSheets.map((rs) => (
-                <li key={rs.id}>
+                <li key={rs.id} className="group flex items-center gap-1 pr-2">
                   <Link
                     href={`/run-sheets/${rs.id}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-surface-subtle/60 transition-colors"
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-subtle/60"
                   >
-                    <CalendarRange className="size-4 text-muted shrink-0" />
+                    <CalendarRange className="size-4 shrink-0 text-muted" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-medium text-foreground truncate">{rs.title}</p>
-                      <p className="text-[11.5px] text-muted truncate mt-0.5">
+                      <p className="truncate text-[13px] font-medium text-foreground">{rs.title}</p>
+                      <p className="mt-0.5 truncate text-[11.5px] text-muted">
                         {rs.events?.title ??
                           (rs.sheet_date
                             ? format(new Date(rs.sheet_date), "EEE, MMM d yyyy")
@@ -138,6 +143,19 @@ export function RunSheetsPageClient({
                     </div>
                     <StatusBadge status={rs.status} size="sm" />
                   </Link>
+
+                  {/* Outside the Link so it isn't a nested interactive element. */}
+                  {canDelete && (
+                    <IconButton
+                      label={`Delete ${rs.title}`}
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                      onClick={() => setDeleting(rs)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </IconButton>
+                  )}
                 </li>
               ))}
             </ul>
@@ -155,6 +173,47 @@ export function RunSheetsPageClient({
           }}
           onError={toastError}
         />
+      )}
+
+      {deleting && canDelete && (
+        <Modal
+          open
+          onClose={() => setDeleting(null)}
+          title="Delete this run sheet?"
+          description={deleting.title}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={busy}
+                onClick={async () => {
+                  setBusy(true)
+                  const res = await deleteRunSheet(deleting.id)
+                  setBusy(false)
+                  if (res.error) return toastError(res.error)
+                  setDeleting(null)
+                  success("Run sheet deleted")
+                  router.refresh()
+                }}
+              >
+                Delete run sheet
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[13px] leading-relaxed text-foreground">
+            This permanently removes{" "}
+            <span className="font-medium">
+              {deleting.run_sheet_sessions?.length ?? 0} session
+              {(deleting.run_sheet_sessions?.length ?? 0) === 1 ? "" : "s"}
+            </span>
+            , along with their cues and everyone assigned to them.
+          </p>
+          <p className="mt-2.5 text-[12.5px] text-muted">This cannot be undone.</p>
+        </Modal>
       )}
 
       {showNew && (

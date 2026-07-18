@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 
 import { format } from "date-fns"
-import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play } from "lucide-react"
+import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play, MoreHorizontal } from "lucide-react"
 
 import { useToast } from "@/lib/toast/toast-context"
 import { useBreadcrumbLabel } from "@/lib/hooks/use-breadcrumb"
@@ -23,7 +23,7 @@ import {
   setSessionStatus,
   setRunSheetStatus,
 } from "@/server/actions/run-sheets/sessions"
-import { duplicateRunSheet, saveAsTemplate } from "@/server/actions/run-sheets/templates"
+import { duplicateRunSheet, saveAsTemplate, deleteRunSheet } from "@/server/actions/run-sheets/templates"
 import { LiveMode } from "./live-mode"
 import { TimelineTrack, laneHeightFor, type TrackSession } from "./timeline-track"
 import { SessionPeek } from "./session-peek"
@@ -37,6 +37,7 @@ import { FormField } from "@/components/ui/form-field"
 import { Select } from "@/components/ui/select"
 import { SessionTimeFields } from "@/components/ui/time-field"
 import { Badge } from "@/components/ui/badge"
+import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 
 /**
  * Zoom levels, in pixels per hour.
@@ -83,9 +84,17 @@ interface Props {
   subTeams: { id: string; name: string }[]
   users: { id: string; full_name: string }[]
   canEdit: boolean
+  canDelete: boolean
 }
 
-export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEdit }: Props) {
+export function RunSheetTimelineClient({
+  sheet,
+  sessions,
+  subTeams,
+  users,
+  canEdit,
+  canDelete,
+}: Props) {
   const router = useRouter()
   const toast = useToast()
   const [pending, startTransition] = useTransition()
@@ -96,6 +105,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
   const [cascade, setCascade] = useState<{ plan: CascadePlan; apply: () => void } | null>(null)
   const [copyMode, setCopyMode] = useState<"duplicate" | "template" | null>(null)
   const [live, setLive] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [hourPx, setHourPx] = useState(DEFAULT_ZOOM)
   const [peek, setPeek] = useState<{ session: TrackSession; anchor: DOMRect } | null>(null)
 
@@ -254,14 +264,34 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
         actions={
           canEdit ? (
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={() => setCopyMode("duplicate")}>
-                <Copy className="size-4" />
-                Duplicate
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setCopyMode("template")}>
-                <BookmarkPlus className="size-4" />
-                Save as template
-              </Button>
+              {/* Secondary actions live behind a menu — four peer buttons made the
+                  primary one hard to find. */}
+              <DropdownMenu
+                trigger={
+                  <IconButton label="More actions" size="sm" variant="outline">
+                    <MoreHorizontal className="size-4" />
+                  </IconButton>
+                }
+              >
+                <DropdownMenuItem onSelect={() => setCopyMode("duplicate")}>
+                  <Copy className="size-3.5" />
+                  Duplicate
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setCopyMode("template")}>
+                  <BookmarkPlus className="size-3.5" />
+                  Save as template
+                </DropdownMenuItem>
+                {canDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="danger" onSelect={() => setConfirmDelete(true)}>
+                      <Trash2 className="size-3.5" />
+                      Delete run sheet
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenu>
+
               <Button size="sm" onClick={() => setCreateAt({ start: hours[0], end: new Date(+hours[0] + 30 * 60_000) })}>
                 <Plus className="size-4" />
                 Add session
@@ -444,6 +474,50 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
             })
           }
         />
+      )}
+
+      {/* ── Delete confirm ───────────────────────────────────── */}
+      {confirmDelete && canDelete && (
+        <Modal
+          open
+          onClose={() => setConfirmDelete(false)}
+          title="Delete this run sheet?"
+          description={sheet.title}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await deleteRunSheet(sheet.id)
+                    if (res.error) return toast.error(res.error)
+                    toast.success("Run sheet deleted")
+                    router.push("/run-sheets")
+                  })
+                }
+              >
+                Delete run sheet
+              </Button>
+            </>
+          }
+        >
+          {/* States the actual damage: the cascade takes everything on the sheet. */}
+          <p className="text-[13px] leading-relaxed text-foreground">
+            This permanently removes{" "}
+            <span className="font-medium">
+              {placed.length} session{placed.length === 1 ? "" : "s"}
+            </span>
+            , along with their cues and everyone assigned to them.
+          </p>
+          <p className="mt-2.5 text-[12.5px] text-muted">
+            This cannot be undone. To keep the structure for reuse, save it as a template
+            first.
+          </p>
+        </Modal>
       )}
 
       {/* ── Cascade confirm ──────────────────────────────────── */}

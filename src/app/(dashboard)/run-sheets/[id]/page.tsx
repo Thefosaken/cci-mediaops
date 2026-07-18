@@ -31,6 +31,9 @@ export default async function RunSheetDetailPage({
 
   // The gate for every affordance in the timeline. Members get a read-only view.
   const canEdit = role ? hasPermission(role, "run_sheets", "edit") : false
+  // Separate from edit: the matrix grants delete to super_admin only, so leads can
+  // build and change a sheet but not destroy one.
+  const canDelete = role ? hasPermission(role, "run_sheets", "delete") : false
 
   const [{ data: sheet }, { data: sessions }, { data: subTeams }, { data: users }] =
     await Promise.all([
@@ -65,6 +68,7 @@ export default async function RunSheetDetailPage({
         subTeams={subTeams ?? []}
         users={users ?? []}
         canEdit={canEdit}
+        canDelete={canDelete}
       />
     </Suspense>
   )

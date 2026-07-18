@@ -140,6 +140,41 @@ export async function createFromTemplate(
   return { success: true, id: data as string }
 }
 
+/**
+ * Delete a run sheet, with everything on it.
+ *
+ * The foreign keys cascade, so this also removes every session, cue and member
+ * assignment. Gated on the `delete` permission, which in the current matrix is
+ * super_admin only — leads and media admins can build and edit sheets but not destroy
+ * them.
+ */
+export async function deleteRunSheet(runSheetId: string) {
+  const profile = await getCurrentUserWithRole()
+  if (!profile) return { error: "Not signed in" }
+
+  const memberships = profile.campus_memberships as
+    | { roles: { name: UserRole } | null }[]
+    | undefined
+  const role = memberships?.[0]?.roles?.name
+
+  if (!role) return { error: "No role assigned" }
+  if (!hasPermission(role, "run_sheets", "delete")) {
+    return { error: "Only an administrator can delete a run sheet" }
+  }
+
+  const supabase = await createClient()
+  const { error, count } = await supabase
+    .from("run_sheets")
+    .delete({ count: "exact" })
+    .eq("id", runSheetId)
+
+  if (error) return { error: error.message }
+  if (!count) return { error: "That run sheet no longer exists" }
+
+  revalidatePath("/run-sheets")
+  return { success: true }
+}
+
 export async function deleteTemplate(templateId: string) {
   const guard = await requireEdit()
   if (!guard.ok) return { error: guard.error }
