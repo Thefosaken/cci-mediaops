@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Menu, ChevronRight, Search } from "lucide-react"
 import { NAV_ITEMS } from "@/constants"
+import { useBreadcrumb } from "@/lib/hooks/use-breadcrumb"
 import { cn } from "@/lib/utils/cn"
 import { IconButton } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -27,8 +28,8 @@ function Breadcrumb({ pathname }: { pathname: string }) {
   const current = NAV_ITEMS.find(
     (item) => pathname === item.href || pathname.startsWith(item.href + "/")
   )
-  // On a detail route the section name is the way back to its list, so it has to be a
-  // link. As plain text it looked like navigation and did nothing.
+  // A detail route registers its record's name via useBreadcrumbLabel.
+  const { label: recordLabel } = useBreadcrumb()
   const onDetailRoute = Boolean(current && pathname !== current.href)
 
   return (
@@ -40,13 +41,21 @@ function Breadcrumb({ pathname }: { pathname: string }) {
         CCI
       </Link>
       <ChevronRight className="h-3 w-3 text-faint hidden sm:inline shrink-0" aria-hidden="true" />
+
       {onDetailRoute ? (
-        <Link
-          href={current!.href}
-          className="font-medium text-muted hover:text-foreground transition-colors truncate"
-        >
-          {current!.label}
-        </Link>
+        <>
+          {/* The section becomes the way back once you are below it. */}
+          <Link
+            href={current!.href}
+            className="text-faint hover:text-foreground transition-colors shrink-0"
+          >
+            {current!.label}
+          </Link>
+          <ChevronRight className="h-3 w-3 text-faint shrink-0" aria-hidden="true" />
+          <span className="font-medium text-foreground truncate">
+            {recordLabel ?? "…"}
+          </span>
+        </>
       ) : (
         <span className="font-medium text-foreground truncate">
           {current?.label ?? "Dashboard"}

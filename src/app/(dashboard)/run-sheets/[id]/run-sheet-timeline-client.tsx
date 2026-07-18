@@ -2,11 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import Link from "next/link"
+
 import { format } from "date-fns"
-import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play, ChevronLeft } from "lucide-react"
+import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play } from "lucide-react"
 
 import { useToast } from "@/lib/toast/toast-context"
+import { useBreadcrumbLabel } from "@/lib/hooks/use-breadcrumb"
 import { cn } from "@/lib/utils/cn"
 import { isPlaced, type RunSheetSession } from "@/types"
 import type { CascadePlan } from "@/lib/utils/run-sheet-timeline"
@@ -98,6 +99,8 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
   const [hourPx, setHourPx] = useState(DEFAULT_ZOOM)
   const [peek, setPeek] = useState<{ session: TrackSession; anchor: DOMRect } | null>(null)
 
+  // Puts the sheet's name in the navbar trail: CCI › Run Sheets › <title>.
+  useBreadcrumbLabel(sheet.title)
 
   // Every session has times now — the "needs times" tray is gone and the database
   // requires both columns (migration 00017). isPlaced remains as a type guard.
@@ -242,20 +245,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
     // h-dvh minus the app header: makes the calendar own the viewport rather than
     // sitting in a short strip with dead space beneath it.
     <div className="flex h-[calc(100dvh-var(--app-header-h,57px))] flex-col">
-      {/* Explicit way back. The breadcrumb now links too, but on a detail page the
-          return path should be visible where the eye already is. */}
-      <div className="shrink-0 border-b border-border bg-canvas px-5 pt-4 sm:px-6">
-        <Link
-          href="/run-sheets"
-          className="inline-flex items-center gap-1 text-[12px] text-muted transition-colors hover:text-foreground"
-        >
-          <ChevronLeft className="size-3.5" />
-          All run sheets
-        </Link>
-      </div>
-
       <PageHeader
-        className="border-b-0 pt-2.5"
         title={sheet.title}
         description={
           sheet.events?.title ??
