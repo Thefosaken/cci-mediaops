@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
-import { Plus, GripVertical } from "lucide-react"
+import { GripVertical } from "lucide-react"
 
 import { cn } from "@/lib/utils/cn"
 
@@ -32,17 +32,37 @@ export interface TrackSession {
 }
 
 /** Width thresholds, in px, at which a bar can afford to show more. */
-const SHOW_MEMBERS = 200
+const SHOW_MEMBERS = 180
 const SHOW_TIME = 104
 const SHOW_NAME = 48
-/** Lane height at which a bar has room for a second detail row. */
-const TALL_LANE = 132
+
+/**
+ * Bars are sized by their content, not by the space available.
+ *
+ * A session with only a name and time needs one compact block; one with people on it
+ * earns a second row. Everything in the lane shares the tallest requirement so the row
+ * stays level — a calendar lane with ragged block heights reads as broken.
+ */
+const BAR_BASE = 56
+const BAR_MEMBER_ROW = 26
 
 const RULER_HEIGHT = 44
 const LANE_PADDING = 14
 /** Drag less than this and it counts as a click, not a move. */
 const DRAG_THRESHOLD = 4
+/** Snap granularity. Applied live during the drag, not just on drop. */
 const SNAP_MS = 5 * 60_000
+
+/** Lane height needed for a given set of sessions. */
+export function laneHeightFor(sessions: TrackSession[], hourPx: number) {
+  const anyMembers = sessions.some(
+    (s) =>
+      s.members.length > 0 &&
+      ((new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / 3_600_000) * hourPx >=
+        SHOW_MEMBERS
+  )
+  return BAR_BASE + (anyMembers ? BAR_MEMBER_ROW : 0) + LANE_PADDING * 2
+}
 
 export function TimelineTrack({
   sessions,
@@ -54,6 +74,7 @@ export function TimelineTrack({
   selectedId,
   onSelect,
   onAddAt,
+  onAddRange,
   onPeek,
   onMove,
 }: {
@@ -66,13 +87,16 @@ export function TimelineTrack({
   selectedId: string | null
   onSelect: (id: string) => void
   onAddAt: (at: Date) => void
+  onAddRange: (from: Date, to: Date) => void
   onPeek: (session: TrackSession | null, anchor: DOMRect | null) => void
   onMove: (id: string, newStart: string, newEnd: string) => void
 }) {
   const trackRef = useRef<HTMLDivElement>(null)
-  const [ghostX, setGhostX] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [dragging, setDragging] = useState<{ id: string; dx: number } | null>(null)
+  /** An in-progress press-and-drag on empty track, defining a new session's span. */
+  const [drawing, setDrawing] = useState<{ fromMs: number; toMs: number } | null>(null)
+  const drawRef = useRef<{ fromMs: number } | null>(null)
 
   const width = hourCount * hourPx
   const startMs = windowStart.getTime()
@@ -127,17 +151,41 @@ export function TimelineTrack({
         {/* ── Lane ──────────────────────────────────────────────── */}
         <div
           ref={trackRef}
-          className={cn("relative", canEdit && !dragging && "cursor-copy")}
+          className={cn("relative", canEdit && !dragging && "cursor-crosshair")}
           style={{ height: laneHeight }}
-          onMouseMove={(e) => {
-            if (!canEdit || dragging || !trackRef.current) return
-            setGhostX(e.clientX - trackRef.current.getBoundingClientRect().left)
-          }}
-          onMouseLeave={() => setGhostX(null)}
-          onClick={(e) => {
-            if (!canEdit || dragging || !trackRef.current) return
+          onPointerDown={(e) => {
+            if (!canEdit || !trackRef.current) return
             if ((e.target as HTMLElement).closest("[data-session-bar]")) return
-            onAddAt(timeAtX(e.clientX - trackRef.current.getBoundingClientRect().left))
+            const x = e.clientX - trackRef.current.getBoundingClientRect().left
+            const from = timeAtX(x).getTime()
+            drawRef.current = { fromMs: from }
+            ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+          }}
+          onPointerMove={(e) => {
+            if (!drawRef.current || !trackRef.current) return
+            const x = e.clientX - trackRef.current.getBoundingClientRect().left
+            setDrawing({ fromMs: drawRef.current.fromMs, toMs: timeAtX(x).getTime() })
+          }}
+          onPointerUp={() => {
+            const draw = drawRef.current
+            const span = drawing
+            drawRef.current = null
+            setDrawing(null)
+            if (!draw) return
+
+            // A press with no meaningful drag creates a default 30-minute session;
+            // a drag defines its own span.
+            if (!span || Math.abs(span.toMs - span.fromMs) < 60_000) {
+              onAddAt(new Date(draw.fromMs))
+            } else {
+              const from = Math.min(span.fromMs, span.toMs)
+              const to = Math.max(span.fromMs, span.toMs)
+              onAddRange(new Date(from), new Date(to))
+            }
+          }}
+          onPointerCancel={() => {
+            drawRef.current = null
+            setDrawing(null)
           }}
         >
           {/* Gridlines */}
@@ -150,22 +198,26 @@ export function TimelineTrack({
             ))}
           </div>
 
-          {/* Ghost slot — click-to-create, shown before the click. */}
-          {canEdit && ghostX !== null && !dragging && (
+          {/* The span being drawn. Appears only once you have pressed and moved —
+              nothing tracks an idle cursor. */}
+          {drawing && Math.abs(drawing.toMs - drawing.fromMs) >= 60_000 && (
             <div
               aria-hidden
               className="pointer-events-none absolute flex items-center justify-center rounded-xl
-                         border border-dashed border-primary/45 bg-primary/[0.05]"
+                         border border-primary/60 bg-primary/10"
               style={{
-                left: Math.round(xFor(timeAtX(ghostX).getTime())),
-                width: hourPx / 2,
+                left: Math.round(xFor(Math.min(drawing.fromMs, drawing.toMs))),
+                width: Math.max(
+                  (Math.abs(drawing.toMs - drawing.fromMs) / 3_600_000) * hourPx,
+                  2
+                ),
                 top: LANE_PADDING,
                 height: laneHeight - LANE_PADDING * 2,
               }}
             >
-              <span className="flex items-center gap-1 text-[11px] font-medium text-primary/80">
-                <Plus className="size-3.5" />
-                {format(timeAtX(ghostX), "h:mm a")}
+              <span className="whitespace-nowrap px-2 text-[11px] font-medium tabular-nums text-primary">
+                {format(Math.min(drawing.fromMs, drawing.toMs), "h:mm")} –{" "}
+                {format(Math.max(drawing.fromMs, drawing.toMs), "h:mm a")}
               </span>
             </div>
           )}
@@ -283,10 +335,15 @@ function SessionBar({
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current) return
-    const dx = e.clientX - drag.current.startX
-    if (!drag.current.moved && Math.abs(dx) < DRAG_THRESHOLD) return
+    const rawDx = e.clientX - drag.current.startX
+    if (!drag.current.moved && Math.abs(rawDx) < DRAG_THRESHOLD) return
     drag.current.moved = true
-    onDragState({ id: session.id, dx })
+
+    // Snap while dragging, not on drop. The bar steps between 5-minute positions so
+    // where it sits is always where it will land — no correction on release.
+    const snappedMs = Math.round(((rawDx / hourPx) * 3_600_000) / SNAP_MS) * SNAP_MS
+    const snappedDx = (snappedMs / 3_600_000) * hourPx
+    onDragState({ id: session.id, dx: snappedDx })
   }
 
   const onPointerUp = (e: React.PointerEvent) => {
@@ -299,7 +356,7 @@ function SessionBar({
     // Below the threshold this was a click, not a drag.
     if (!moved) return onSelect()
 
-    // Convert pixels to time, snapped to 5 minutes, keeping the duration intact.
+    // Same snap the drag was already showing, so the bar lands exactly where it sat.
     const deltaMs = Math.round(((dx / hourPx) * 3_600_000) / SNAP_MS) * SNAP_MS
     if (deltaMs === 0) return
     onMove(
@@ -312,7 +369,6 @@ function SessionBar({
   const done = session.status === "completed"
   const skipped = session.status === "skipped"
   const isDragging = dragDx !== 0
-  const tall = laneHeight >= TALL_LANE
 
   return (
     <div
@@ -432,33 +488,21 @@ function SessionBar({
           </p>
         )}
 
-        {tall && width >= SHOW_MEMBERS && session.members.length > 0 && (
-          <div className="mt-2.5 flex items-center -space-x-1.5">
-            {session.members.slice(0, 5).map((m) => (
-              <span
-                key={m.id}
-                title={m.name}
-                className={cn(
-                  "grid size-6 place-items-center rounded-full text-[9.5px] font-semibold ring-2",
-                  selected
-                    ? "bg-[var(--color-primary-foreground)] text-primary ring-primary"
-                    : "bg-surface text-muted ring-[var(--color-primary-soft)]"
-                )}
-              >
-                {initials(m.name)}
-              </span>
-            ))}
-            {session.members.length > 5 && (
-              <span
-                className={cn(
-                  "pl-3 text-[10px] tabular-nums",
-                  selected ? "text-[var(--color-primary-foreground)]/75" : "text-muted"
-                )}
-              >
-                +{session.members.length - 5}
-              </span>
+        {/* Names in full. Initials save space but cost recognition — on a run sheet
+            you need to know it's Fola, not decode "FA". */}
+        {width >= SHOW_MEMBERS && session.members.length > 0 && (
+          <p
+            className={cn(
+              "mt-1.5 truncate text-[11px] leading-tight",
+              selected ? "text-[var(--color-primary-foreground)]/80" : "text-muted"
             )}
-          </div>
+          >
+            {session.members
+              .slice(0, 3)
+              .map((m) => m.name)
+              .join(" · ")}
+            {session.members.length > 3 && ` +${session.members.length - 3}`}
+          </p>
         )}
       </div>
 
@@ -478,7 +522,3 @@ function SessionBar({
   )
 }
 
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/)
-  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?"
-}

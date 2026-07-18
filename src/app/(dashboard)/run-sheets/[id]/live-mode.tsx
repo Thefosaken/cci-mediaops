@@ -133,8 +133,10 @@ export function LiveMode({
   const over = remainingMs < 0
   const ratio = Math.min(1, Math.max(0, elapsedMs / plannedMs))
 
-  /** Cumulative drift against the plan, if we finished this session right now. */
+  /** Drift against the plan, if we finished this session right now. */
   const driftMs = elapsedMs - plannedMs
+  /** 30s either way is noise, not information — a director shouldn't chase it. */
+  const onTime = Math.abs(driftMs) < 30_000
   const urgent = !over && remainingMs < 60_000
 
   const ringColor = over ? "var(--color-danger)" : urgent ? "var(--warning)" : "var(--color-primary)"
@@ -196,12 +198,25 @@ export function LiveMode({
       </div>
 
       {/* ── Stage ─────────────────────────────────────────────── */}
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-4">
-        <div className="grid w-full max-w-5xl gap-10 lg:grid-cols-[auto_1fr] lg:items-center">
-          {/* Countdown ring */}
-          <div className="flex items-center justify-center gap-6 lg:flex-col lg:gap-4">
+      <div className="relative flex min-h-0 flex-1 overflow-y-auto">
+        {/* A single soft wash behind the stage. Enough to separate the content from
+            the chrome without becoming decoration. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: over
+              ? "radial-gradient(120% 80% at 50% 0%, color-mix(in oklab, var(--color-danger) 9%, transparent), transparent 65%)"
+              : "radial-gradient(120% 80% at 50% 0%, color-mix(in oklab, var(--color-primary) 6%, transparent), transparent 65%)",
+            transition: "background 600ms var(--ease-out-quart)",
+          }}
+        />
+
+        <div className="relative mx-auto grid w-full max-w-6xl grid-cols-1 content-center gap-10 px-6 py-8 lg:grid-cols-[220px_1fr] lg:gap-14">
+          {/* ── Timing column ─────────────────────────────────── */}
+          <div className="flex flex-row items-center gap-8 lg:flex-col lg:items-start lg:gap-7">
             <div className="relative shrink-0" style={{ width: RING, height: RING }}>
-              <svg width={RING} height={RING} className="-rotate-90">
+              <svg width={RING} height={RING} className="-rotate-90 overflow-visible">
                 <circle
                   cx={RING / 2}
                   cy={RING / 2}
@@ -221,87 +236,101 @@ export function LiveMode({
                   strokeDasharray={circumference}
                   strokeDashoffset={circumference * (1 - ratio)}
                   className="transition-[stroke-dashoffset,stroke] duration-1000 ease-linear"
+                  style={{ filter: over ? "drop-shadow(0 0 8px color-mix(in oklab, var(--color-danger) 45%, transparent))" : undefined }}
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span
                   className={cn(
-                    "text-[26px] font-semibold tabular-nums leading-none tracking-tight",
+                    "font-semibold tabular-nums leading-none tracking-[-0.03em]",
+                    "text-[30px]",
                     over ? "text-danger" : urgent ? "text-[var(--warning)]" : "text-foreground"
                   )}
                 >
                   {over && "+"}
                   {clock(Math.abs(remainingMs))}
                 </span>
-                <span className="mt-1 text-[10.5px] uppercase tracking-wider text-faint">
-                  {over ? "over" : "left"}
+                <span className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-faint">
+                  {over ? "over" : "remaining"}
                 </span>
               </div>
             </div>
 
-            {/* Drift against plan — the number a director actually acts on. */}
-            <div className="text-center">
-              <p className="text-[11px] uppercase tracking-wider text-faint">Running</p>
+            {/* Drift — the number a director actually acts on. */}
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-faint">
+                Against plan
+              </p>
               <p
                 className={cn(
-                  "text-[13px] font-medium tabular-nums",
-                  Math.abs(driftMs) < 30_000
-                    ? "text-[var(--success)]"
-                    : driftMs > 0
-                      ? "text-danger"
-                      : "text-muted"
+                  "mt-1 text-[15px] font-medium tabular-nums leading-tight",
+                  onTime ? "text-[var(--success)]" : driftMs > 0 ? "text-danger" : "text-[var(--color-info)]"
                 )}
               >
-                {Math.abs(driftMs) < 30_000
-                  ? "on time"
-                  : `${driftMs > 0 ? "+" : "−"}${clock(Math.abs(driftMs))} ${driftMs > 0 ? "behind" : "ahead"}`}
+                {onTime
+                  ? "On time"
+                  : `${clock(Math.abs(driftMs))} ${driftMs > 0 ? "behind" : "ahead"}`}
+              </p>
+              <p className="mt-3 text-[10px] font-medium uppercase tracking-[0.12em] text-faint">
+                Session
+              </p>
+              <p className="mt-1 text-[13px] tabular-nums text-muted">
+                {idx + 1} of {ordered.length}
               </p>
             </div>
           </div>
 
-          {/* Session + cues */}
+          {/* ── Content column ────────────────────────────────── */}
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-              Now · {idx + 1} of {ordered.length}
-            </p>
-            <h1 className="mt-2 text-[clamp(1.9rem,4.5vw,3rem)] font-semibold leading-[1.04] tracking-[-0.02em] text-foreground">
-              {current.name}
-            </h1>
-            <p className="mt-2 flex items-center gap-2 text-[12.5px] tabular-nums text-muted">
-              <Clock className="size-3.5" />
+            <p className="flex items-center gap-2 text-[12px] tabular-nums text-muted">
+              <Clock className="size-3.5 shrink-0" />
               {format(new Date(current.start_time!), "h:mm")} –{" "}
               {format(new Date(current.end_time!), "h:mm a")}
               <span className="text-faint">·</span>
               {Math.round(plannedMs / 60_000)} min planned
             </p>
 
-            {filledCues.length > 0 && (
-              <ul className="mt-6 grid gap-2 sm:grid-cols-2">
-                {filledCues.map((c) => (
-                  <li
-                    key={c.name}
-                    className="rounded-xl border border-border bg-surface p-3.5"
-                  >
-                    <p className="text-[10.5px] font-semibold uppercase tracking-wider text-faint">
-                      {c.name}
-                    </p>
-                    <p className="mt-1.5 text-[15px] leading-snug text-foreground">{c.text}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {current.notes && (
-              <p className="mt-4 rounded-xl border border-border-subtle bg-[var(--surface-subtle)] p-3.5 text-[13px] leading-relaxed text-foreground">
-                {current.notes}
-              </p>
-            )}
+            <h1
+              key={current.id}
+              className="mt-2.5 animate-[slide-up_var(--duration-medium)_var(--ease-out-expo)] text-[clamp(2rem,5vw,3.4rem)]
+                         font-semibold leading-[1.02] tracking-[-0.025em] text-foreground"
+            >
+              {current.name}
+            </h1>
 
             {current.run_sheet_session_members.length > 0 && (
-              <p className="mt-4 text-[12.5px] text-muted">
+              <p className="mt-3 text-[13px] text-muted">
                 {current.run_sheet_session_members
                   .map((m) => m.users?.full_name ?? m.role_title ?? "Unassigned")
                   .join(" · ")}
+              </p>
+            )}
+
+            {filledCues.length > 0 ? (
+              <ul className="mt-7 grid gap-2.5 sm:grid-cols-2">
+                {filledCues.map((c, i) => (
+                  <li
+                    key={c.name}
+                    style={{ animationDelay: `${i * 45}ms` }}
+                    className="animate-[slide-up_var(--duration-medium)_var(--ease-out-expo)_backwards]
+                               relative overflow-hidden rounded-xl border border-border bg-surface p-4"
+                  >
+                    {/* Unit accent, so a crew member finds their own cue by shape not reading. */}
+                    <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-primary/60" />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+                      {c.name}
+                    </p>
+                    <p className="mt-2 text-[16px] leading-snug text-foreground">{c.text}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-7 text-[13px] italic text-faint">No cues for this session</p>
+            )}
+
+            {current.notes && (
+              <p className="mt-3 rounded-xl border border-border-subtle bg-[var(--surface-subtle)] p-4 text-[13.5px] leading-relaxed text-foreground">
+                {current.notes}
               </p>
             )}
           </div>

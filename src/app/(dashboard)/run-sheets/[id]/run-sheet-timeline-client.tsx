@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play } from "lucide-react"
@@ -23,7 +23,7 @@ import {
 } from "@/server/actions/run-sheets/sessions"
 import { duplicateRunSheet, saveAsTemplate } from "@/server/actions/run-sheets/templates"
 import { LiveMode } from "./live-mode"
-import { TimelineTrack, type TrackSession } from "./timeline-track"
+import { TimelineTrack, laneHeightFor, type TrackSession } from "./timeline-track"
 import { SessionPeek } from "./session-peek"
 
 import { PageHeader } from "@/components/ui/page-header"
@@ -89,29 +89,14 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
   const [pending, startTransition] = useTransition()
 
   const [openSessionId, setOpenSessionId] = useState<string | null>(null)
-  const [createAt, setCreateAt] = useState<Date | null>(null)
+  // Holds the span a new session will occupy — either drawn on the track or defaulted.
+  const [createAt, setCreateAt] = useState<{ start: Date; end: Date } | null>(null)
   const [cascade, setCascade] = useState<{ plan: CascadePlan; apply: () => void } | null>(null)
   const [copyMode, setCopyMode] = useState<"duplicate" | "template" | null>(null)
   const [live, setLive] = useState(false)
   const [hourPx, setHourPx] = useState(DEFAULT_ZOOM)
   const [peek, setPeek] = useState<{ session: TrackSession; anchor: DOMRect } | null>(null)
 
-  /**
-   * Lane height, measured from the viewport rather than hard-coded, so the calendar
-   * genuinely fills the page. Clamped: below 120 the bars lose their detail rows,
-   * above 340 a single lane starts to look like an empty field.
-   */
-  const [laneHeight, setLaneHeight] = useState(220)
-  useEffect(() => {
-    const measure = () => {
-      // Viewport minus the app header, page header, card chrome and page padding.
-      const available = window.innerHeight - 320
-      setLaneHeight(Math.max(120, Math.min(340, available)))
-    }
-    measure()
-    window.addEventListener("resize", measure)
-    return () => window.removeEventListener("resize", measure)
-  }, [])
 
   // Every session has times now — the "needs times" tray is gone and the database
   // requires both columns (migration 00017). isPlaced remains as a type guard.
@@ -142,6 +127,13 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
       })),
     [placed]
   )
+
+  /**
+   * Lane height follows the content: a compact row for name and time, plus one more
+   * row only when a bar is wide enough to list people. The card still fills the page;
+   * the lane sits at the top of it rather than stretching to fill.
+   */
+  const laneHeight = useMemo(() => laneHeightFor(trackSessions, hourPx), [trackSessions, hourPx])
 
   /** Cues for whichever session is being peeked, resolved to sub-team names. */
   const peekCues = useMemo(() => {
@@ -266,7 +258,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
                 <BookmarkPlus className="size-4" />
                 Save as template
               </Button>
-              <Button size="sm" onClick={() => setCreateAt(hours[0])}>
+              <Button size="sm" onClick={() => setCreateAt({ start: hours[0], end: new Date(+hours[0] + 30 * 60_000) })}>
                 <Plus className="size-4" />
                 Add session
               </Button>
@@ -342,7 +334,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
                   : "Sessions will appear here once a lead adds them."}
               </p>
               {canEdit && (
-                <Button size="sm" variant="secondary" onClick={() => setCreateAt(hours[0])}>
+                <Button size="sm" variant="secondary" onClick={() => setCreateAt({ start: hours[0], end: new Date(+hours[0] + 30 * 60_000) })}>
                   <Plus className="size-4" /> Add the first session
                 </Button>
               )}
@@ -357,7 +349,8 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
               canEdit={canEdit}
               selectedId={openSessionId}
               onSelect={setOpenSessionId}
-              onAddAt={setCreateAt}
+              onAddAt={(at) => setCreateAt({ start: at, end: new Date(+at + 30 * 60_000) })}
+              onAddRange={(from, to) => setCreateAt({ start: from, end: to })}
               onPeek={(s, a) => setPeek(s ? { session: s, anchor: a! } : null)}
               onMove={(id, start, end) => requestRetime(id, start, end)}
             />
@@ -366,7 +359,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
 
         {canEdit && placed.length > 0 && (
           <p className="mt-2.5 shrink-0 text-[11.5px] text-faint">
-            Click the timeline to add · drag a session to reschedule · click to edit
+            Drag on the timeline to draw a session · drag a session to reschedule
           </p>
         )}
       </div>
@@ -475,14 +468,16 @@ function CreateSessionModal({
   onClose,
   onSubmit,
 }: {
-  at: Date
+  at: { start: Date; end: Date }
   busy: boolean
   onClose: () => void
   onSubmit: (v: { name: string; startTime: string; endTime: string; sessionType?: string }) => void
 }) {
   const [name, setName] = useState("")
-  const [start, setStart] = useState(toLocalInput(at))
-  const [end, setEnd] = useState(toLocalInput(new Date(at.getTime() + 3_600_000)))
+  // Prefilled from the span drawn on the track, so the form confirms what you drew
+  // rather than making you re-enter it.
+  const [start, setStart] = useState(toLocalInput(at.start))
+  const [end, setEnd] = useState(toLocalInput(at.end))
 
   const invalid = !name.trim() || new Date(end) <= new Date(start)
 
