@@ -71,7 +71,7 @@ export function RunSheetsPageClient({
         }
       />
 
-      <div className="px-6 pb-10 space-y-6">
+      <div className="px-5 py-6 sm:px-6 space-y-6">
         {/* Templates */}
         {templates.length > 0 && (
           <section className="rounded-lg border border-border bg-surface">

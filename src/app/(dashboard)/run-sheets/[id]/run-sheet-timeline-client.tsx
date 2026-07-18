@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play } from "lucide-react"
@@ -95,6 +95,23 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
   const [live, setLive] = useState(false)
   const [hourPx, setHourPx] = useState(DEFAULT_ZOOM)
   const [peek, setPeek] = useState<{ session: TrackSession; anchor: DOMRect } | null>(null)
+
+  /**
+   * Lane height, measured from the viewport rather than hard-coded, so the calendar
+   * genuinely fills the page. Clamped: below 120 the bars lose their detail rows,
+   * above 340 a single lane starts to look like an empty field.
+   */
+  const [laneHeight, setLaneHeight] = useState(220)
+  useEffect(() => {
+    const measure = () => {
+      // Viewport minus the app header, page header, card chrome and page padding.
+      const available = window.innerHeight - 320
+      setLaneHeight(Math.max(120, Math.min(340, available)))
+    }
+    measure()
+    window.addEventListener("resize", measure)
+    return () => window.removeEventListener("resize", measure)
+  }, [])
 
   // Every session has times now — the "needs times" tray is gone and the database
   // requires both columns (migration 00017). isPlaced remains as a type guard.
@@ -229,7 +246,9 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
   }
 
   return (
-    <>
+    // h-dvh minus the app header: makes the calendar own the viewport rather than
+    // sitting in a short strip with dead space beneath it.
+    <div className="flex h-[calc(100dvh-var(--app-header-h,57px))] flex-col">
       <PageHeader
         title={sheet.title}
         description={
@@ -271,8 +290,10 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
         }
       />
 
-      <div className="px-6 pb-10">
-        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+      {/* Fills the viewport below the header. min-h-0 lets the track scroll inside
+          rather than pushing the page taller. */}
+      <div className="flex min-h-0 flex-1 flex-col px-5 py-6 sm:px-6">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface">
           {/* Sheet meta + zoom, sitting above the ruler like a calendar's toolbar. */}
           <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
             <p className="text-[12px] tabular-nums text-muted">
@@ -313,9 +334,9 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
           </div>
 
           {placed.length === 0 ? (
-            <div className="grid place-items-center gap-3 px-6 py-16 text-center">
-              <p className="text-[13px] text-foreground">Nothing scheduled yet</p>
-              <p className="max-w-xs text-[12px] leading-relaxed text-muted">
+            <div className="grid flex-1 place-content-center justify-items-center gap-3 px-6 text-center">
+              <p className="text-[14px] font-medium text-foreground">Nothing scheduled yet</p>
+              <p className="max-w-xs text-[12.5px] leading-relaxed text-muted">
                 {canEdit
                   ? "Click anywhere on the timeline to add a session at that time."
                   : "Sessions will appear here once a lead adds them."}
@@ -332,18 +353,20 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
               windowStart={windowStart}
               hourCount={hourCount}
               hourPx={hourPx}
+              laneHeight={laneHeight}
               canEdit={canEdit}
               selectedId={openSessionId}
               onSelect={setOpenSessionId}
               onAddAt={setCreateAt}
               onPeek={(s, a) => setPeek(s ? { session: s, anchor: a! } : null)}
+              onMove={(id, start, end) => requestRetime(id, start, end)}
             />
           )}
         </div>
 
         {canEdit && placed.length > 0 && (
-          <p className="mt-2.5 text-[11.5px] text-faint">
-            Click the timeline to add a session · click a session to edit it
+          <p className="mt-2.5 shrink-0 text-[11.5px] text-faint">
+            Click the timeline to add · drag a session to reschedule · click to edit
           </p>
         )}
       </div>
@@ -434,7 +457,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
           onConfirm={cascade.apply}
         />
       )}
-    </>
+    </div>
   )
 }
 
