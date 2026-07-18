@@ -69,10 +69,10 @@ export async function submitPublicRequest(
   const link = await getPublicLinkByToken(token)
   if (!link) return { error: "Invalid or expired link" }
 
-  const selectedSubTeamId = parsed.data.subTeamId
+  const selectedSubTeamIds = parsed.data.subTeamIds
   const allTeams = await getActiveSubTeams()
-  const isValidTeam = selectedSubTeamId && allTeams.some((t) => t.id === selectedSubTeamId)
-  if (!isValidTeam) return { error: "Please select a valid sub-team." }
+  const isValid = selectedSubTeamIds.every((id) => allTeams.some((t) => t.id === id))
+  if (!isValid) return { error: "Please select a valid sub-team." }
 
   const trackingId = generateTrackingId()
 
@@ -98,14 +98,13 @@ export async function submitPublicRequest(
 
   if (reqError) return { error: reqError.message }
 
-  const { error: subTeamError } = await (admin.from("request_sub_teams" as never) as any)
-    .insert({
-      request_id: request.id,
-      sub_team_id: selectedSubTeamId,
-    })
+  if (selectedSubTeamIds.length > 0) {
+    const { error: subTeamError } = await (admin.from("request_sub_teams" as never) as any)
+      .insert(selectedSubTeamIds.map((st) => ({ request_id: request.id, sub_team_id: st })))
 
-  if (subTeamError) {
-    console.error("Failed to assign sub-team:", subTeamError.message)
+    if (subTeamError) {
+      console.error("Failed to assign sub-teams:", subTeamError.message)
+    }
   }
 
   await admin.rpc("increment_public_link_count" as never, { link_id: link.id } as never)

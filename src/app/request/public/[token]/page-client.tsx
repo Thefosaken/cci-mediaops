@@ -6,6 +6,7 @@ import { Inbox, CheckCircle2, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
+import { Combobox } from "@/components/ui/combobox"
 import { DatePicker } from "@/components/ui/date-picker"
 import { FormField } from "@/components/ui/form-field"
 import { PRIORITIES, REQUESTING_UNITS } from "@/constants"
@@ -19,7 +20,7 @@ const EMPTY_FORM: PublicRequestInput = {
   requestingUnit: "",
   requesterName: "",
   requesterContact: "",
-  subTeamId: "",
+  subTeamIds: [],
   description: "",
   desiredOutput: "",
   deadline: "",
@@ -41,8 +42,8 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
       setError("Please fill in all required fields.")
       return
     }
-    if (!form.subTeamId) {
-      setError("Please select a team.")
+    if (form.subTeamIds.length === 0) {
+      setError("Please select at least one team.")
       return
     }
 
@@ -141,14 +142,12 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
                   required
                 />
               </FormField>
-              <FormField label="Which team?" required helper="Select the team you need help from" className="sm:col-span-2">
-                <Select
-                  value={form.subTeamId}
-                  onChange={(v) => setForm({ ...form, subTeamId: v })}
-                  options={[
-                    { value: "", label: "Select a team…" },
-                    ...subTeams.map((st) => ({ value: st.id, label: st.name })),
-                  ]}
+              <FormField label="Route to sub-teams" required helper="Select one or more teams" className="sm:col-span-2">
+                <Combobox
+                  values={form.subTeamIds}
+                  onChange={(v) => setForm({ ...form, subTeamIds: v })}
+                  options={subTeams.map((st) => ({ value: st.id, label: st.name }))}
+                  placeholder="Select sub-teams…"
                 />
               </FormField>
               <FormField label="Request title" required className="sm:col-span-2">
