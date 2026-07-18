@@ -105,6 +105,19 @@ export const incidentSchema = z.object({
   description: z.string().min(10, "Description is required"),
 })
 
+export const publicRequestSchema = z.object({
+  title: z.string().min(2, "Title is required"),
+  requestingUnit: z.string().min(1, "Requesting unit is required"),
+  requesterName: z.string().min(1, "Your name is required"),
+  requesterContact: z.string().min(1, "Email or phone is required"),
+  description: z.string().optional(),
+  desiredOutput: z.string().optional(),
+  deadline: z.string().optional(),
+  priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+})
+
+export type PublicRequestInput = z.infer<typeof publicRequestSchema>
+
 export type SignUpInput = z.infer<typeof signUpSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type EventInput = z.infer<typeof eventSchema>

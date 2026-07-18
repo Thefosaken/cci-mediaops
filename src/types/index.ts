@@ -63,16 +63,8 @@ export type IncidentStatus = "open" | "investigating" | "resolved"
 
 export type EntityType = "request" | "task" | "equipment" | "incident" | "event"
 
-export interface Organization {
-  id: string
-  name: string
-  created_at: string
-  updated_at: string
-}
-
 export interface Campus {
   id: string
-  organization_id: string
   name: string
   location: string | null
   status: CampusStatus
@@ -105,7 +97,7 @@ export interface RoleEntity {
   id: string
   name: string
   description: string | null
-  scope: "global" | "campus" | "sub_team"
+  scope: "campus" | "sub_team"
   created_at: string
   updated_at: string
 }
@@ -180,13 +172,31 @@ export interface ScheduleSlot {
   updated_at: string
 }
 
+export interface PublicRequestLink {
+  id: string
+  campus_id: string
+  sub_team_ids: string[]
+  created_by: string
+  token: string
+  label: string
+  is_active: boolean
+  submission_count: number
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface Request {
   id: string
   campus_id: string
   event_id: string | null
   title: string
   requesting_unit: string
-  requester_id: string
+  requester_id: string | null
+  requester_name: string | null
+  requester_contact: string | null
+  public_request_link_id: string | null
+  tracking_id: string | null
   description: string | null
   desired_output: string | null
   deadline: string | null

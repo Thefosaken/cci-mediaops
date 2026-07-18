@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import {
   Settings as SettingsIcon, User as UserIcon, Users, Building, Bell, Palette, Shield,
   Plus, Check, X as XIcon, Search, Power, MoreHorizontal, Mail, Send, Clock,
+  Link2, Copy, ExternalLink,
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { createClient } from "@/lib/supabase/client"
@@ -41,6 +42,17 @@ interface UserRow {
   campus_memberships: { id: string; role_id: string | null; status: string }[]
 }
 interface Campus { id: string; name: string; location: string | null }
+interface PublicLinkRow {
+  id: string
+  token: string
+  label: string
+  sub_team_ids: string[]
+  is_active: boolean
+  submission_count: number
+  created_at: string
+  expires_at: string | null
+  created_by_user: { full_name: string | null; email: string | null } | null
+}
 
 const SECTIONS = [
   { id: "profile", label: "Profile", icon: UserIcon, adminOnly: false },
@@ -48,6 +60,7 @@ const SECTIONS = [
   { id: "notifications", label: "Notifications", icon: Bell, adminOnly: false },
   { id: "campus", label: "Campus", icon: Building, adminOnly: true },
   { id: "sub-teams", label: "Sub-teams", icon: Users, adminOnly: true },
+  { id: "public-links", label: "Public request links", icon: Link2, adminOnly: true },
   { id: "users", label: "Users & access", icon: Shield, adminOnly: true },
 ] as const
 
@@ -55,22 +68,26 @@ export function SettingsPageClient({
   currentUser,
   roleName,
   isAdmin,
+  canCreateLinks,
   invitedUsers,
   pendingUsers,
   activeUsers,
   subTeams,
   roles,
   campus,
+  publicLinks,
 }: {
   currentUser: { id: string; full_name: string | null; email: string | null; phone: string | null }
   roleName: string | null
   isAdmin: boolean
+  canCreateLinks: boolean
   invitedUsers: UserRow[]
   pendingUsers: UserRow[]
   activeUsers: UserRow[]
   subTeams: SubTeam[]
   roles: Role[]
   campus: Campus | null
+  publicLinks: PublicLinkRow[]
 }) {
   const { get, set } = useUrlState()
   const section = get("section") ?? "profile"
@@ -124,6 +141,9 @@ export function SettingsPageClient({
             {section === "notifications" && <NotificationsSection />}
             {section === "campus" && isAdmin && <CampusSection campus={campus} />}
             {section === "sub-teams" && isAdmin && <SubTeamsSection subTeams={subTeams} />}
+            {section === "public-links" && isAdmin && (
+              <PublicLinksSection links={publicLinks} subTeams={subTeams} canCreate={canCreateLinks} />
+            )}
             {section === "users" && isAdmin && (
               <UsersSection
                 invitedUsers={invitedUsers}
@@ -395,6 +415,194 @@ function SubTeamsSection({ subTeams }: { subTeams: SubTeam[] }) {
         </div>
       )}
     </div>
+  )
+}
+
+// ── Section: Public Request Links (admin) ───────────────────────────────
+function PublicLinksSection({
+  links, subTeams, canCreate,
+}: {
+  links: PublicLinkRow[]
+  subTeams: SubTeam[]
+  canCreate: boolean
+}) {
+  const router = useRouter()
+  const { success, error: toastError } = useToast()
+  const [showCreate, setShowCreate] = useState(false)
+
+  function copyLink(token: string) {
+    const url = `${window.location.origin}/request/public/${token}`
+    navigator.clipboard.writeText(url).then(
+      () => success("Link copied to clipboard"),
+      () => toastError("Could not copy link")
+    )
+  }
+
+  async function toggleLink(linkId: string, currentActive: boolean) {
+    const { togglePublicLink } = await import("@/server/actions/public-links")
+    const r = await togglePublicLink(linkId, !currentActive)
+    if (r.error) toastError(r.error)
+    else { success(currentActive ? "Link deactivated" : "Link activated"); router.refresh() }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <SectionTitle
+          title="Public request links"
+          description="Generate shareable links so external people can submit media requests without logging in."
+        />
+        {canCreate && (
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="h-3.5 w-3.5" /> Generate link
+          </Button>
+        )}
+      </div>
+
+      {links.length === 0 ? (
+        <EmptyState
+          icon={<Link2 />}
+          title="No public links yet"
+          description="Generate a link to share with departments, ministries, or external requesters."
+          action={canCreate ? { label: "Generate link", onClick: () => setShowCreate(true) } : undefined}
+        />
+      ) : (
+        <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+          {links.map((link) => {
+            const teamNames = link.sub_team_ids
+              .map((id) => subTeams.find((st) => st.id === id)?.name)
+              .filter(Boolean)
+            return (
+              <div key={link.id} className="flex items-center gap-3 px-5 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[13px] font-medium text-foreground">{link.label || "Untitled link"}</p>
+                    <Badge variant={link.is_active ? "success" : "muted"} size="sm" dot>
+                      {link.is_active ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-3 text-[11.5px] text-faint">
+                    <span>{link.submission_count} submission{link.submission_count !== 1 ? "s" : ""}</span>
+                    {link.created_by_user?.full_name && (
+                      <>
+                        <span>·</span>
+                        <span>by {link.created_by_user.full_name}</span>
+                      </>
+                    )}
+                    {teamNames.length > 0 && (
+                      <>
+                        <span>·</span>
+                        <span>to {teamNames.join(", ")}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <Button size="xs" variant="ghost" onClick={() => copyLink(link.token)}>
+                  <Copy className="h-3 w-3" /> Copy
+                </Button>
+                <IconButton
+                  label={link.is_active ? "Deactivate" : "Activate"}
+                  size="xs"
+                  onClick={() => toggleLink(link.id, link.is_active)}
+                >
+                  <Power className="h-3 w-3" />
+                </IconButton>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <CreatePublicLinkModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        subTeams={subTeams}
+      />
+    </div>
+  )
+}
+
+function CreatePublicLinkModal({
+  open, onClose, subTeams,
+}: {
+  open: boolean
+  onClose: () => void
+  subTeams: SubTeam[]
+}) {
+  const router = useRouter()
+  const { success, error: toastError } = useToast()
+  const [label, setLabel] = useState("")
+  const [subTeamIds, setSubTeamIds] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+
+  async function create() {
+    if (!label.trim() || subTeamIds.length === 0) {
+      toastError("Add a label and at least one sub-team.")
+      return
+    }
+    setSaving(true)
+    const { generatePublicLink } = await import("@/server/actions/public-links")
+    const r = await generatePublicLink({ label: label.trim(), subTeamIds })
+    setSaving(false)
+    if (r.error) { toastError(r.error); return }
+    success("Public link generated")
+    setLabel(""); setSubTeamIds([])
+    router.refresh()
+    onClose()
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Generate public request link"
+      description="Anyone with this link can submit a request without logging in."
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={create} loading={saving} disabled={saving || !label.trim() || subTeamIds.length === 0}>
+            <Link2 className="h-3.5 w-3.5" /> Generate
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 py-2">
+        <FormField label="Link label" required helper="e.g. Teens Church Requests">
+          <Input
+            autoFocus
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Teens Church Design Requests"
+            autoComplete="off"
+          />
+        </FormField>
+        <FormField label="Route to sub-teams" required helper="Submissions go directly to these teams">
+          <div className="space-y-1.5">
+            {subTeams.map((st) => (
+              <label
+                key={st.id}
+                className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-surface-subtle transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={subTeamIds.includes(st.id)}
+                  onChange={(e) => {
+                    setSubTeamIds(
+                      e.target.checked
+                        ? [...subTeamIds, st.id]
+                        : subTeamIds.filter((id) => id !== st.id)
+                    )
+                  }}
+                  className="h-3.5 w-3.5 accent-primary"
+                />
+                <span className="text-[13px] text-foreground">{st.name}</span>
+              </label>
+            ))}
+          </div>
+        </FormField>
+      </div>
+    </Modal>
   )
 }
 

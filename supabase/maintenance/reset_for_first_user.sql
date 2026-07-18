@@ -39,10 +39,9 @@ delete from public.events;
 delete from public.sub_team_memberships;
 delete from public.sub_teams;
 
--- 3. Campus + org structure
+-- 3. Campus structure
 delete from public.campus_memberships;
 delete from public.campuses;
-delete from public.organizations;
 
 -- 4. Users (public + auth)
 delete from public.users;
@@ -54,7 +53,7 @@ commit;
 select 'auth.users' as table_name, count(*)::int from auth.users
 union all select 'public.users', count(*)::int from public.users
 union all select 'campuses', count(*)::int from public.campuses
-union all select 'organizations', count(*)::int from public.organizations
+
 union all select 'sub_teams', count(*)::int from public.sub_teams
 union all select 'campus_memberships', count(*)::int from public.campus_memberships
 union all select 'sub_team_join_requests', count(*)::int from public.sub_team_join_requests

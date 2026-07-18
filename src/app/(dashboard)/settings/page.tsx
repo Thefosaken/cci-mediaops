@@ -11,10 +11,11 @@ export default async function SettingsPage() {
   const roleName = (userWithRole as unknown as { campus_memberships?: { roles?: { name?: string } }[] } | null)
     ?.campus_memberships?.[0]?.roles?.name
   const isAdmin = roleName === "super_admin" || roleName === "media_admin"
+  const canCreateLinks = !!(roleName && ["super_admin", "media_admin", "sub_team_lead", "assistant_lead"].includes(roleName))
 
   const supabase = await createClient()
 
-  const [allUsersRes, subTeamsRes, rolesRes, campusRes] = await Promise.all([
+  const [allUsersRes, subTeamsRes, rolesRes, campusRes, publicLinksRes] = await Promise.all([
     supabase
       .from("users")
       .select("*, campus_memberships(id, role_id, status)")
@@ -22,6 +23,10 @@ export default async function SettingsPage() {
     supabase.from("sub_teams").select("*").order("name"),
     supabase.from("roles").select("*").order("name"),
     supabase.from("campuses").select("*").limit(1).maybeSingle(),
+    supabase
+      .from("public_request_links")
+      .select("*, created_by_user:created_by(full_name, email)")
+      .order("created_at", { ascending: false }),
   ])
 
   const all = allUsersRes.data ?? []
@@ -48,12 +53,14 @@ export default async function SettingsPage() {
         currentUser={user}
         roleName={roleName ?? null}
         isAdmin={isAdmin}
+        canCreateLinks={!!canCreateLinks}
         invitedUsers={invited}
         pendingUsers={legacyPending}
         activeUsers={active}
         subTeams={subTeamsRes.data ?? []}
         roles={rolesRes.data ?? []}
         campus={campusRes.data ?? null}
+        publicLinks={publicLinksRes.data ?? []}
       />
     </Suspense>
   )

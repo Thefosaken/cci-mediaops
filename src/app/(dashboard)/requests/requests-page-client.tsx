@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import {
   Inbox, Plus, Search, MessageSquare, MoreHorizontal,
-  CheckCircle2, XCircle, CornerUpLeft, FileText, AlertTriangle,
+  CheckCircle2, XCircle, CornerUpLeft, FileText, AlertTriangle, Link2, ExternalLink,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/lib/toast/toast-context"
@@ -39,6 +39,8 @@ import {
   completeRequest,
 } from "@/server/actions/requests"
 
+type PublicLinkLite = { id: string; token: string; label: string }
+
 type RequestRow = {
   id: string
   title: string
@@ -50,6 +52,10 @@ type RequestRow = {
   desired_output: string | null
   approval_required: boolean | null
   created_at: string
+  tracking_id: string | null
+  requester_name: string | null
+  requester_contact: string | null
+  public_request_link_id: string | null
   request_sub_teams: { sub_team_id: string; sub_teams: { id: string; name: string } | null }[]
   requester: { full_name: string | null; email: string | null } | null
   events?: { id: string; title: string; start_time: string } | null
@@ -80,11 +86,15 @@ export function RequestsPageClient({
   requests,
   subTeams,
   events,
+  publicLinks,
+  canCreateLinks,
 }: {
   requests: RequestRow[]
   subTeams: SubTeamLite[]
   events: { id: string; title: string; start_time: string }[]
   users: { id: string; full_name: string | null; email: string | null }[]
+  publicLinks: PublicLinkLite[]
+  canCreateLinks: boolean
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
@@ -92,6 +102,7 @@ export function RequestsPageClient({
 
   const detailId = get("id")
   const showNew = get("new") === "1"
+  const showNewLink = get("newLink") === "1"
   const initialStatus = get("status") ?? "open"
 
   const [statusFilter, setStatusFilter] = useState(initialStatus)
@@ -210,9 +221,16 @@ export function RequestsPageClient({
         description="Submit, route, and resolve media requests"
         icon={<Inbox />}
         actions={
-          <Button size="sm" onClick={() => set({ new: "1" })}>
-            <Plus className="h-3.5 w-3.5" /> New request
-          </Button>
+          <div className="flex items-center gap-2">
+            {canCreateLinks && (
+              <Button size="sm" variant="secondary" onClick={() => set({ newLink: "1" })}>
+                <Link2 className="h-3.5 w-3.5" /> Generate link
+              </Button>
+            )}
+            <Button size="sm" onClick={() => set({ new: "1" })}>
+              <Plus className="h-3.5 w-3.5" /> New request
+            </Button>
+          </div>
         }
       />
 
@@ -291,6 +309,11 @@ export function RequestsPageClient({
                       )}
                       {req.approval_required && (
                         <Badge variant="info" size="sm">Approval required</Badge>
+                      )}
+                      {req.public_request_link_id && (
+                        <Badge variant="muted" size="sm">
+                          <ExternalLink className="h-2.5 w-2.5" /> Public
+                        </Badge>
                       )}
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-[12px] text-muted flex-wrap">
@@ -401,6 +424,13 @@ export function RequestsPageClient({
         </form>
       </Modal>
 
+      {/* Generate public link modal */}
+      <PublicLinkModal
+        open={showNewLink}
+        onClose={() => clear("newLink")}
+        subTeams={subTeams}
+      />
+
       {/* Detail panel */}
       <SidePanel
         open={!!detail}
@@ -450,6 +480,90 @@ export function RequestsPageClient({
         {detail && <RequestDetail request={detail} />}
       </SidePanel>
     </div>
+  )
+}
+
+function PublicLinkModal({
+  open, onClose, subTeams,
+}: {
+  open: boolean
+  onClose: () => void
+  subTeams: SubTeamLite[]
+}) {
+  const router = useRouter()
+  const { success, error: toastError } = useToast()
+  const [label, setLabel] = useState("")
+  const [subTeamIds, setSubTeamIds] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+
+  async function create() {
+    if (!label.trim() || subTeamIds.length === 0) {
+      toastError("Add a label and at least one sub-team.")
+      return
+    }
+    setSaving(true)
+    const { generatePublicLink } = await import("@/server/actions/public-links")
+    const r = await generatePublicLink({ label: label.trim(), subTeamIds })
+    setSaving(false)
+    if (r.error) { toastError(r.error); return }
+    success("Public link generated")
+    setLabel(""); setSubTeamIds([])
+    router.refresh()
+    onClose()
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Generate public request link"
+      description="Anyone with this link can submit a request without logging in."
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={create} loading={saving} disabled={saving || !label.trim() || subTeamIds.length === 0}>
+            <Link2 className="h-3.5 w-3.5" /> Generate
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 py-2">
+        <FormField label="Link label" required helper="e.g. Teens Church Requests">
+          <Input
+            autoFocus
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Teens Church Design Requests"
+            autoComplete="off"
+          />
+        </FormField>
+        <FormField label="Route to sub-teams" required helper="Submissions go directly to these teams">
+          <div className="space-y-1.5">
+            {subTeams.map((st) => (
+              <label
+                key={st.id}
+                className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-surface-subtle transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={subTeamIds.includes(st.id)}
+                  onChange={(e) => {
+                    setSubTeamIds(
+                      e.target.checked
+                        ? [...subTeamIds, st.id]
+                        : subTeamIds.filter((id) => id !== st.id)
+                    )
+                  }}
+                  className="h-3.5 w-3.5 accent-primary"
+                />
+                <span className="text-[13px] text-foreground">{st.name}</span>
+              </label>
+            ))}
+          </div>
+        </FormField>
+      </div>
+    </Modal>
   )
 }
 
