@@ -3,16 +3,17 @@
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
-import { Plus, Clock, Users, Inbox, ArrowRight, Trash2, CornerUpLeft, Copy, BookmarkPlus, Play } from "lucide-react"
+import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play } from "lucide-react"
 
 import { useToast } from "@/lib/toast/toast-context"
+import { cn } from "@/lib/utils/cn"
 import { isPlaced, type RunSheetSession } from "@/types"
 import type { CascadePlan } from "@/lib/utils/run-sheet-timeline"
 import {
   createSession,
   previewRetime,
   applyRetime,
-  parkSession,
+
   deleteSession,
   setCue,
   addSessionMember,
@@ -22,6 +23,8 @@ import {
 } from "@/server/actions/run-sheets/sessions"
 import { duplicateRunSheet, saveAsTemplate } from "@/server/actions/run-sheets/templates"
 import { LiveMode } from "./live-mode"
+import { TimelineTrack, type TrackSession } from "./timeline-track"
+import { SessionPeek } from "./session-peek"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Button, IconButton } from "@/components/ui/button"
@@ -33,11 +36,23 @@ import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 
-/** Pixels per hour on the timeline. Wide enough to read a session name in a short slot. */
-const HOUR_PX = 150
-/** Fallback window when a sheet has no placed sessions to derive one from. */
+/**
+ * Zoom levels, in pixels per hour.
+ *
+ * A run sheet packs short items into a few hours, so the useful range runs much wider
+ * than a normal calendar. "Detail" gives a 5-minute session ~30px — enough for the
+ * coloured rule and a peek target; "Fit" is for reading the whole service at a glance.
+ */
+const ZOOMS = [
+  { label: "Fit", px: 120 },
+  { label: "Comfortable", px: 240 },
+  { label: "Detail", px: 380 },
+] as const
+const DEFAULT_ZOOM = 240
+
+/** Fallback window when a sheet has no sessions to derive one from. */
 const DEFAULT_START_HOUR = 7
-const DEFAULT_HOURS = 8
+const DEFAULT_HOURS = 6
 
 type SessionRow = RunSheetSession & {
   run_sheet_session_cues: { id: string; sub_team_id: string; cue_text: string | null }[]
@@ -50,6 +65,9 @@ type SessionRow = RunSheetSession & {
     users: { id: string; full_name: string } | null
   }[]
 }
+
+/** A session row known to have times — every row, since migration 00017. */
+type PlacedRow = SessionRow & { start_time: string; end_time: string }
 
 interface Props {
   sheet: {
@@ -75,9 +93,49 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
   const [cascade, setCascade] = useState<{ plan: CascadePlan; apply: () => void } | null>(null)
   const [copyMode, setCopyMode] = useState<"duplicate" | "template" | null>(null)
   const [live, setLive] = useState(false)
+  const [hourPx, setHourPx] = useState(DEFAULT_ZOOM)
+  const [peek, setPeek] = useState<{ session: TrackSession; anchor: DOMRect } | null>(null)
 
-  const placed = useMemo(() => sessions.filter(isPlaced), [sessions])
-  const parked = useMemo(() => sessions.filter((s) => !isPlaced(s)), [sessions])
+  // Every session has times now — the "needs times" tray is gone and the database
+  // requires both columns (migration 00017). isPlaced remains as a type guard.
+  const placed = useMemo(
+    () =>
+      sessions
+        // isPlaced narrows RunSheetSession; re-stating it as a predicate on SessionRow
+        // keeps the joined cues and members on the narrowed type.
+        .filter((s): s is PlacedRow => isPlaced(s))
+        .sort((a, b) => +new Date(a.start_time) - +new Date(b.start_time)),
+    [sessions]
+  )
+
+  /** Flattened shape the track renders — keeps layout logic out of the data layer. */
+  const trackSessions: TrackSession[] = useMemo(
+    () =>
+      placed.map((s) => ({
+        id: s.id,
+        name: s.name,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        status: s.status,
+        cueCount: s.run_sheet_session_cues.filter((c) => c.cue_text?.trim()).length,
+        members: s.run_sheet_session_members.map((m) => ({
+          id: m.id,
+          name: m.users?.full_name ?? m.role_title ?? "Unassigned",
+        })),
+      })),
+    [placed]
+  )
+
+  /** Cues for whichever session is being peeked, resolved to sub-team names. */
+  const peekCues = useMemo(() => {
+    if (!peek) return []
+    const s = sessions.find((x) => x.id === peek.session.id)
+    if (!s) return []
+    return s.run_sheet_session_cues.map((c) => ({
+      subTeam: subTeams.find((st) => st.id === c.sub_team_id)?.name ?? "Unit",
+      text: c.cue_text,
+    }))
+  }, [peek, sessions, subTeams])
 
   /**
    * The visible window. Derived from the sessions themselves so a sheet that runs
@@ -213,111 +271,88 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
         }
       />
 
-      <div className="px-6 pb-10 space-y-6">
-        {/* ── Timeline ─────────────────────────────────────────── */}
-        <div className="rounded-lg border border-border bg-surface overflow-x-auto">
-          <div style={{ width: hourCount * HOUR_PX, minWidth: "100%" }}>
-            {/* Hour ruler */}
-            <div className="flex border-b border-border">
-              {hours.map((h, i) => (
-                <div
-                  key={i}
-                  style={{ width: HOUR_PX }}
-                  className="shrink-0 border-r border-border last:border-r-0 px-2 py-2 group relative"
-                >
-                  <span className="text-[12px] font-medium text-muted">{format(h, "h a")}</span>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => setCreateAt(h)}
-                      title={`Add a session at ${format(h, "h a")}`}
-                      className="absolute right-1 top-1.5 opacity-0 group-hover:opacity-100 focus:opacity-100
-                                 transition-opacity rounded p-0.5 hover:bg-surface-hover text-muted hover:text-foreground"
-                    >
-                      <Plus className="size-3.5" />
-                    </button>
+      <div className="px-6 pb-10">
+        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+          {/* Sheet meta + zoom, sitting above the ruler like a calendar's toolbar. */}
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+            <p className="text-[12px] tabular-nums text-muted">
+              {placed.length === 0 ? (
+                "No sessions yet"
+              ) : (
+                <>
+                  <span className="font-medium text-foreground">{placed.length}</span> session
+                  {placed.length === 1 ? "" : "s"}
+                  <span className="mx-1.5 text-faint">·</span>
+                  {format(new Date(placed[0].start_time!), "h:mm a")} –{" "}
+                  {format(new Date(placed[placed.length - 1].end_time!), "h:mm a")}
+                </>
+              )}
+            </p>
+
+            <div
+              role="group"
+              aria-label="Zoom"
+              className="flex items-center gap-0.5 rounded-md bg-[var(--color-canvas)] p-0.5"
+            >
+              {ZOOMS.map((z) => (
+                <button
+                  key={z.label}
+                  type="button"
+                  onClick={() => setHourPx(z.px)}
+                  className={cn(
+                    "rounded px-2 py-1 text-[11px] font-medium transition-colors duration-150",
+                    hourPx === z.px
+                      ? "bg-surface text-foreground shadow-[var(--shadow-sm)]"
+                      : "text-muted hover:text-foreground"
                   )}
-                </div>
+                >
+                  {z.label}
+                </button>
               ))}
             </div>
+          </div>
 
-            {/* Session bars */}
-            <div className="relative" style={{ height: Math.max(120, placed.length * 44 + 24) }}>
-              {/* Hour gridlines, echoing the ruler above. */}
-              <div className="absolute inset-0 flex pointer-events-none">
-                {hours.map((_, i) => (
-                  <div key={i} style={{ width: HOUR_PX }} className="shrink-0 border-r border-border/50 last:border-r-0" />
-                ))}
-              </div>
-
-              {placed.length === 0 ? (
-                <div className="absolute inset-0 grid place-items-center">
-                  <p className="text-[13px] text-muted">
-                    Nothing scheduled yet{canEdit && " — use + on an hour to add a session"}
-                  </p>
-                </div>
-              ) : (
-                placed.map((s, i) => {
-                  const start = new Date(s.start_time!).getTime()
-                  const end = new Date(s.end_time!).getTime()
-                  const left = ((start - windowStart.getTime()) / 3_600_000) * HOUR_PX
-                  const width = Math.max(((end - start) / 3_600_000) * HOUR_PX, 56)
-                  const cueCount = s.run_sheet_session_cues.filter(
-                    (c) => c.cue_text && c.cue_text.trim() !== ""
-                  ).length
-
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setOpenSessionId(s.id)}
-                      style={{ left, width, top: i * 44 + 12 }}
-                      className="absolute h-9 rounded-md border border-primary/40 bg-primary/10 hover:bg-primary/20
-                                 px-2.5 text-left transition-colors overflow-hidden"
-                    >
-                      <span className="block truncate text-[13px] font-medium text-foreground">
-                        {s.name}
-                        {cueCount > 0 && (
-                          <span className="text-muted font-normal"> ({cueCount} cue{cueCount > 1 ? "s" : ""})</span>
-                        )}
-                      </span>
-                      <span className="block truncate text-[11px] text-muted">
-                        {format(new Date(s.start_time!), "h:mm")}–{format(new Date(s.end_time!), "h:mm a")}
-                      </span>
-                    </button>
-                  )
-                })
+          {placed.length === 0 ? (
+            <div className="grid place-items-center gap-3 px-6 py-16 text-center">
+              <p className="text-[13px] text-foreground">Nothing scheduled yet</p>
+              <p className="max-w-xs text-[12px] leading-relaxed text-muted">
+                {canEdit
+                  ? "Click anywhere on the timeline to add a session at that time."
+                  : "Sessions will appear here once a lead adds them."}
+              </p>
+              {canEdit && (
+                <Button size="sm" variant="secondary" onClick={() => setCreateAt(hours[0])}>
+                  <Plus className="size-4" /> Add the first session
+                </Button>
               )}
             </div>
-          </div>
+          ) : (
+            <TimelineTrack
+              sessions={trackSessions}
+              windowStart={windowStart}
+              hourCount={hourCount}
+              hourPx={hourPx}
+              canEdit={canEdit}
+              selectedId={openSessionId}
+              onSelect={setOpenSessionId}
+              onAddAt={setCreateAt}
+              onPeek={(s, a) => setPeek(s ? { session: s, anchor: a! } : null)}
+            />
+          )}
         </div>
 
-        {/* ── Parking tray ─────────────────────────────────────── */}
-        {parked.length > 0 && (
-          <div className="rounded-lg border border-border bg-surface">
-            <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-              <Inbox className="size-4 text-muted" />
-              <h2 className="text-[13px] font-medium text-foreground">Needs times</h2>
-              <Badge variant="neutral">{parked.length}</Badge>
-              <p className="text-[12px] text-muted ml-1">
-                Carried over without a start time. Give one to place it on the timeline.
-              </p>
-            </div>
-            <ul className="divide-y divide-border">
-              {parked.map((s) => (
-                <li key={s.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <span className="flex-1 truncate text-[13px] text-foreground">{s.name}</span>
-                  {s.session_type && <Badge variant="neutral">{s.session_type}</Badge>}
-                  <Button size="xs" variant="ghost" onClick={() => setOpenSessionId(s.id)}>
-                    {canEdit ? "Set times" : "View"}
-                    <ArrowRight className="size-3.5" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {canEdit && placed.length > 0 && (
+          <p className="mt-2.5 text-[11.5px] text-faint">
+            Click the timeline to add a session · click a session to edit it
+          </p>
         )}
       </div>
+
+      <SessionPeek
+        session={peek?.session ?? null}
+        anchor={peek?.anchor ?? null}
+        cues={peekCues}
+      />
 
       {/* ── Create ───────────────────────────────────────────── */}
       {createAt && canEdit && (
@@ -348,7 +383,7 @@ export function RunSheetTimelineClient({ sheet, sessions, subTeams, users, canEd
           busy={pending}
           onClose={() => setOpenSessionId(null)}
           onRetime={(start, end) => requestRetime(openSession.id, start, end)}
-          onPark={() => guard(() => parkSession(openSession.id))}
+
           onDelete={() =>
             guard(async () => {
               const r = await deleteSession(openSession.id)
@@ -535,7 +570,7 @@ function SessionPanel({
   busy,
   onClose,
   onRetime,
-  onPark,
+
   onDelete,
   onCue,
   onAddMember,
@@ -548,7 +583,7 @@ function SessionPanel({
   busy: boolean
   onClose: () => void
   onRetime: (start: string, end: string) => void
-  onPark: () => void
+
   onDelete: () => void
   onCue: (subTeamId: string, text: string) => void
   onAddMember: (userId: string) => void
@@ -692,12 +727,7 @@ function SessionPanel({
 
         {canEdit && (
           <section className="flex gap-2 border-t border-border pt-4">
-            {placedNow && (
-              <Button size="sm" variant="outline" onClick={onPark}>
-                <CornerUpLeft className="size-3.5" />
-                Move to tray
-              </Button>
-            )}
+            {/* No "move to tray" any more — a session without times cannot exist. */}
             <Button size="sm" variant="danger" onClick={onDelete}>
               <Trash2 className="size-3.5" />
               Delete
