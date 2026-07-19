@@ -3,15 +3,14 @@
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
-  Users, Plus, Search, UserPlus, Trash2, Star, CheckSquare,
-  Inbox, Wrench, MoreHorizontal, UserPlus2, Clock, Check, X as XIcon,
+  Users, Plus, Search, UserPlus, Trash2, Star,
+  MoreHorizontal, UserPlus2, Clock, ChevronRight,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/lib/toast/toast-context"
 import { useUrlState } from "@/lib/hooks/use-url-state"
 import { cn } from "@/lib/utils/cn"
 import { ROLE_LABELS } from "@/constants"
-import { formatDistanceToNow } from "date-fns"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Button, IconButton } from "@/components/ui/button"
@@ -160,49 +159,114 @@ export function SubTeamsPageClient({
     else { success("Promoted to lead"); router.refresh() }
   }
 
+  const members = active?.sub_team_memberships ?? []
+
+  const openTaskCount =
+    active?.tasks.filter((t) => !["completed", "cancelled"].includes(t.status)).length ?? 0
+
+  const equipmentIssues = teamEquipment.filter((e) =>
+    ["faulty", "missing", "under_repair"].includes(e.condition_status)
+  ).length
+
+  /**
+   * Leads first, then everyone else alphabetically.
+   *
+   * Who leads a team is the first thing you look for and the previous order —
+   * whatever the database returned — buried it. Sorting by role also lets the list
+   * show the split with a rule instead of a second heading.
+   */
+  // A team is a handful of people — sorting it every render costs nothing, and the
+  // compiler cannot preserve a memo whose input is derived inline.
+  const orderedMembers = [...members].sort((a, b) => {
+    const rank = (name?: string | null) =>
+      name === "sub_team_lead" ? 0 : name === "assistant_lead" ? 1 : 2
+    const byRole = rank(a.roles?.name) - rank(b.roles?.name)
+    if (byRole !== 0) return byRole
+    return (a.users?.full_name ?? "").localeCompare(b.users?.full_name ?? "")
+  })
+
   return (
-    <div className="flex flex-col">
+    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
       <PageHeader
         title="Sub-teams"
-        description="Each media sub-team — members, tasks, and current load"
+        description="Members, workload and standing of each media team"
         icon={<Users />}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] flex-1 min-h-0">
-        {/* List */}
-        <aside className="border-r border-border bg-canvas overflow-y-auto">
-          <div className="p-3">
-            <p className="text-[11.5px] font-semibold uppercase tracking-wider text-faint mb-2">
-              Sub-teams
+      <div className="flex min-h-0 flex-1">
+        {/* ── Team rail ──────────────────────────────────────────
+            Slightly wider than before so a team's name and its load fit on
+            one line each — the previous 260px truncated both. */}
+        <aside className="hidden w-[268px] shrink-0 overflow-y-auto border-r border-border lg:block">
+          <div className="px-3 py-3">
+            <p className="mb-2 px-1.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-faint">
+              Teams
             </p>
+
             {subTeams.length === 0 ? (
-              <EmptyState variant="compact" icon={<Users />} title="No sub-teams" description="Create one in Settings." />
+              <div className="px-1.5 py-6">
+                <EmptyState
+                  variant="compact"
+                  icon={<Users />}
+                  title="No sub-teams"
+                  description="Create one in Settings."
+                />
+              </div>
             ) : (
-              <ul className="space-y-0.5">
+              <ul className="space-y-px">
                 {subTeams.map((st) => {
                   const memberCount = st.sub_team_memberships.length
-                  const openTasks = st.tasks.filter((t) => !["completed", "cancelled"].includes(t.status)).length
-                  const teamPending = pendingJoinRequests.filter((r) => r.sub_team_id === st.id).length
+                  const openTasks = st.tasks.filter(
+                    (t) => !["completed", "cancelled"].includes(t.status)
+                  ).length
+                  const teamPending = pendingJoinRequests.filter(
+                    (r) => r.sub_team_id === st.id
+                  ).length
+                  const isActive = activeId === st.id
+
                   return (
                     <li key={st.id}>
                       <button
                         type="button"
                         onClick={() => set({ id: st.id })}
                         className={cn(
-                          "w-full rounded-md px-2.5 py-2 text-left transition-colors",
-                          activeId === st.id ? "bg-surface-subtle" : "hover:bg-surface-subtle/60"
+                          "group relative w-full rounded-md py-2 pl-3 pr-2.5 text-left",
+                          "transition-colors duration-100",
+                          isActive ? "bg-surface-subtle" : "hover:bg-surface-subtle/50"
                         )}
                       >
-                        <div className="flex items-center gap-2">
-                          <span className="text-[13px] font-medium text-foreground truncate flex-1">{st.name}</span>
-                          {teamPending > 0 && (
-                            <Badge variant="warning" size="sm">{teamPending}</Badge>
+                        {/* Selection reads as a rule against the rail rather than a
+                            filled block — quieter, and it survives hover states. */}
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "absolute inset-y-1.5 left-0 w-[2px] rounded-full transition-colors",
+                            isActive ? "bg-primary" : "bg-transparent"
                           )}
-                          {st.status !== "active" && <Badge variant="muted" size="sm">{st.status}</Badge>}
+                        />
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              "flex-1 truncate text-[13px]",
+                              isActive ? "font-medium text-foreground" : "text-foreground"
+                            )}
+                          >
+                            {st.name}
+                          </span>
+                          {teamPending > 0 && (
+                            <span className="grid h-[17px] min-w-[17px] shrink-0 place-items-center rounded-full bg-[var(--warning-soft)] px-1 text-[10px] font-semibold tabular-nums text-[var(--warning)]">
+                              {teamPending}
+                            </span>
+                          )}
+                          {st.status !== "active" && (
+                            <Badge variant="muted" size="sm">
+                              {st.status}
+                            </Badge>
+                          )}
                         </div>
-                        <p className="text-[11.5px] text-faint mt-0.5 tabular-nums">
+                        <p className="mt-0.5 truncate text-[11.5px] tabular-nums text-faint">
                           {memberCount} {memberCount === 1 ? "member" : "members"}
-                          {openTasks > 0 && ` · ${openTasks} open ${openTasks === 1 ? "task" : "tasks"}`}
+                          {openTasks > 0 && ` · ${openTasks} open`}
                         </p>
                       </button>
                     </li>
@@ -213,24 +277,28 @@ export function SubTeamsPageClient({
           </div>
         </aside>
 
-        {/* Detail */}
-        <main className="flex-1 min-w-0 overflow-y-auto">
+        {/* ── Detail ───────────────────────────────────────────── */}
+        <main className="min-w-0 flex-1 overflow-y-auto">
           {!active ? (
-            <div className="h-full flex items-center justify-center p-8">
-              <EmptyState icon={<Users />} title="Pick a sub-team" description="Select one from the left." />
+            <div className="flex h-full items-center justify-center p-8">
+              <EmptyState
+                icon={<Users />}
+                title="Pick a team"
+                description="Choose one from the list to see its members and workload."
+              />
             </div>
           ) : (
-            <div className="p-5 sm:p-6 space-y-5">
-              {/* Header card */}
-              <div className="rounded-xl border border-border bg-surface px-5 py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-[18px] font-semibold tracking-tight text-foreground">{active.name}</h2>
-                    {active.description && (
-                      <p className="text-[13px] text-muted mt-1 max-w-xl">{active.description}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
+            <div className="mx-auto max-w-[900px] px-5 py-6 sm:px-6">
+              {/* ── Identity ──────────────────────────────────────
+                  Plain heading rather than a card. It is the subject of the
+                  page, not one panel among several, and boxing it flattened
+                  it to the same weight as everything below. */}
+              <header className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="truncate text-[22px] font-semibold leading-tight tracking-[-0.02em] text-foreground">
+                      {active.name}
+                    </h2>
                     {isMember && (
                       <Badge variant="success" size="sm" dot>
                         {myMembershipHere?.roles?.name
@@ -238,67 +306,96 @@ export function SubTeamsPageClient({
                           : "Member"}
                       </Badge>
                     )}
-                    {!isMember && pendingJoin && (
+                  </div>
+
+                  {active.description && (
+                    <p className="mt-1.5 max-w-[60ch] text-[13px] leading-relaxed text-muted">
+                      {active.description}
+                    </p>
+                  )}
+
+                  {/* Counts as a sentence, not four boxes. The boxes restated
+                      numbers each section already shows in its own header, and
+                      gave equal weight to figures of very unequal importance. */}
+                  <p className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] tabular-nums text-muted">
+                    <span className="font-medium text-foreground">
+                      {active.sub_team_memberships.length}
+                    </span>
+                    {active.sub_team_memberships.length === 1 ? "member" : "members"}
+                    <Dot />
+                    <span className="font-medium text-foreground">{openTaskCount}</span>
+                    open {openTaskCount === 1 ? "task" : "tasks"}
+                    {teamRequests.length > 0 && (
                       <>
-                        <Badge variant="warning" size="sm" dot>
-                          <Clock className="h-2.5 w-2.5" />
-                          Awaiting approval
-                        </Badge>
-                        <Button variant="ghost" size="xs" onClick={cancelMyRequest}>
-                          Cancel
-                        </Button>
+                        <Dot />
+                        <span className="font-medium text-foreground">{teamRequests.length}</span>
+                        {teamRequests.length === 1 ? "request" : "requests"}
                       </>
                     )}
-                    {!isMember && !pendingJoin && (
-                      <Button size="sm" onClick={() => setShowJoinModal(true)}>
-                        <UserPlus2 className="h-3.5 w-3.5" />
-                        Request to join
-                      </Button>
+                    {equipmentIssues > 0 && (
+                      <>
+                        <Dot />
+                        <span className="font-medium text-danger">{equipmentIssues}</span>
+                        <span className="text-danger">
+                          equipment {equipmentIssues === 1 ? "issue" : "issues"}
+                        </span>
+                      </>
                     )}
-                  </div>
+                  </p>
                 </div>
-                <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <Stat label="Members" value={active.sub_team_memberships.length} />
-                  <Stat label="Open tasks" value={active.tasks.filter((t) => !["completed", "cancelled"].includes(t.status)).length} />
-                  <Stat label="Requests" value={teamRequests.length} />
-                  <Stat label="Equipment" value={teamEquipment.length} />
-                </div>
-              </div>
 
-              {/* Pending join requests (visible to leads + admins) */}
+                <div className="flex shrink-0 items-center gap-2">
+                  {!isMember && pendingJoin && (
+                    <>
+                      <Badge variant="warning" size="sm" dot>
+                        <Clock className="h-2.5 w-2.5" />
+                        Awaiting approval
+                      </Badge>
+                      <Button variant="ghost" size="xs" onClick={cancelMyRequest}>
+                        Cancel
+                      </Button>
+                    </>
+                  )}
+                  {!isMember && !pendingJoin && (
+                    <Button size="sm" onClick={() => setShowJoinModal(true)}>
+                      <UserPlus2 className="h-3.5 w-3.5" />
+                      Request to join
+                    </Button>
+                  )}
+                </div>
+              </header>
+
+              {/* ── Pending joins ─────────────────────────────────
+                  Kept above the fold and tinted, because it is the only thing
+                  on this page waiting on the viewer to act. */}
               {canModerate && teamPendingRequests.length > 0 && (
-                <section className="rounded-xl border border-warning/30 bg-warning-soft/30 overflow-hidden">
-                  <div className="flex items-center gap-2 px-5 py-3 border-b border-warning/30">
-                    <Clock className="h-3.5 w-3.5 text-warning" />
-                    <h3 className="text-[13px] font-semibold text-foreground">Pending join requests</h3>
-                    <Badge variant="warning" size="sm">{teamPendingRequests.length}</Badge>
+                <section className="mt-6 overflow-hidden rounded-lg border border-[var(--warning)]/25 bg-[var(--warning-soft)]/25">
+                  <div className="flex items-center gap-2 border-b border-[var(--warning)]/20 px-5 py-2.5">
+                    <Clock className="size-3.5 text-[var(--warning)]" />
+                    <h3 className="text-[12.5px] font-semibold text-foreground">
+                      {teamPendingRequests.length} request
+                      {teamPendingRequests.length === 1 ? "" : "s"} to join
+                    </h3>
                   </div>
-                  <ul className="divide-y divide-warning/20">
-                    {teamPendingRequests.map((req) => (
-                      <li key={req.id} className="flex items-start gap-3 px-5 py-3">
-                        <Avatar name={req.user?.full_name} email={req.user?.email} size="sm" />
+                  <ul className="divide-y divide-[var(--warning)]/15">
+                    {teamPendingRequests.map((r) => (
+                      <li key={r.id} className="flex items-center gap-3 px-5 py-3">
+                        <Avatar name={r.user?.full_name} email={r.user?.email} size="sm" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-[13px] font-medium text-foreground truncate">
-                            {req.user?.full_name ?? req.user?.email}
+                          <p className="truncate text-[13px] font-medium text-foreground">
+                            {r.user?.full_name ?? "Someone"}
                           </p>
-                          <p className="text-[11.5px] text-faint truncate">
-                            {req.user?.email}
-                            <span className="mx-1.5">·</span>
-                            <span className="tabular-nums">
-                              {formatDistanceToNow(new Date(req.created_at), { addSuffix: true })}
-                            </span>
-                          </p>
-                          {req.message && (
-                            <p className="text-[12px] text-muted mt-1 italic">&ldquo;{req.message}&rdquo;</p>
+                          {r.message && (
+                            <p className="mt-0.5 truncate text-[12px] text-muted">“{r.message}”</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button size="xs" onClick={() => approveRequest(req.id)}>
-                            <Check className="h-3 w-3" /> Approve
+                        <div className="flex shrink-0 gap-1.5">
+                          <Button size="xs" variant="ghost" onClick={() => rejectRequest(r.id)}>
+                            Decline
                           </Button>
-                          <IconButton label="Reject" size="xs" onClick={() => rejectRequest(req.id)}>
-                            <XIcon className="h-3 w-3" />
-                          </IconButton>
+                          <Button size="xs" onClick={() => approveRequest(r.id)}>
+                            Approve
+                          </Button>
                         </div>
                       </li>
                     ))}
@@ -306,164 +403,197 @@ export function SubTeamsPageClient({
                 </section>
               )}
 
-              {/* Two-column grid */}
-              <div className="grid gap-5 lg:grid-cols-2">
-                {/* Members */}
-                <section className="rounded-xl border border-border bg-surface overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-border px-5 py-3">
-                    <div>
-                      <h3 className="text-[13px] font-semibold text-foreground">Members</h3>
-                      <p className="text-[11.5px] text-faint">{active.sub_team_memberships.length} people</p>
-                    </div>
+              {/* ── Members ───────────────────────────────────────
+                  Full width and first. A sub-team is its people; everything
+                  else on this page is a consequence of who is on it. */}
+              <section className="mt-6 overflow-hidden rounded-lg border border-border bg-surface">
+                <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+                  <h3 className="text-[12.5px] font-semibold text-foreground">Members</h3>
+                  {canModerate && (
                     <Button size="xs" variant="secondary" onClick={() => setShowAddMember(true)}>
-                      <UserPlus className="h-3 w-3" /> Add
+                      <UserPlus className="h-3 w-3" /> Add member
                     </Button>
+                  )}
+                </div>
+
+                {active.sub_team_memberships.length === 0 ? (
+                  <div className="px-5 py-8">
+                    <EmptyState
+                      variant="compact"
+                      icon={<UserPlus />}
+                      title="No members yet"
+                      description="Add people to assign work to this team."
+                      action={
+                        canModerate
+                          ? { label: "Add member", onClick: () => setShowAddMember(true) }
+                          : undefined
+                      }
+                    />
                   </div>
-                  {active.sub_team_memberships.length === 0 ? (
-                    <div className="p-5">
-                      <EmptyState variant="compact" icon={<UserPlus />} title="No members yet"
-                        description="Add team members to assign work."
-                        action={{ label: "Add member", onClick: () => setShowAddMember(true) }} />
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-border">
-                      {active.sub_team_memberships.map((m) => {
-                        const isLead = m.roles?.name === "sub_team_lead" || m.roles?.name === "assistant_lead"
-                        return (
-                          <li key={m.users?.id ?? Math.random()} className="flex items-center gap-3 px-5 py-2.5">
-                            <Avatar name={m.users?.full_name} email={m.users?.email} size="sm" />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[13px] font-medium text-foreground truncate">
-                                  {m.users?.full_name ?? "?"}
-                                </span>
-                                {isLead && (
-                                  <Star className="h-3 w-3 text-warning fill-warning" aria-hidden="true" />
-                                )}
-                              </div>
-                              <p className="text-[11.5px] text-faint truncate">{m.users?.email}</p>
+                ) : (
+                  <ul className="divide-y divide-border-subtle">
+                    {orderedMembers.map((m, i) => {
+                      const roleName = m.roles?.name
+                      const isLead = roleName === "sub_team_lead" || roleName === "assistant_lead"
+                      const isMe = m.users?.id === currentUserId
+                      // A rule under the last lead separates leadership from the
+                      // rest without needing a second heading.
+                      const endsLeadBlock = isLead && !leadIsLead(orderedMembers[i + 1])
+
+                      return (
+                        <li
+                          key={m.users?.id ?? i}
+                          className={cn(
+                            "group flex items-center gap-3 px-5 py-2.5",
+                            "transition-colors duration-100 hover:bg-surface-subtle/40",
+                            endsLeadBlock && "border-b border-border"
+                          )}
+                        >
+                          <Avatar name={m.users?.full_name} email={m.users?.email} size="sm" />
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-[13px] font-medium text-foreground">
+                                {m.users?.full_name ?? "Unknown"}
+                              </span>
+                              {isMe && <span className="text-[11px] text-faint">you</span>}
                             </div>
-                            {m.roles?.name && (
-                              <Badge variant={isLead ? "warning" : "muted"} size="sm">
-                                {ROLE_LABELS[m.roles.name] ?? m.roles.name}
-                              </Badge>
-                            )}
-                            {(canModerate || m.users?.id === currentUserId) && (
-                              <DropdownMenu trigger={
-                                <IconButton label="Member actions" size="xs" variant="ghost">
+                            {/* Email is reference, not identity — muted and one
+                                step down, rather than competing with the name. */}
+                            <p className="truncate text-[11.5px] text-faint">{m.users?.email}</p>
+                          </div>
+
+                          {roleName && (
+                            <span
+                              className={cn(
+                                "shrink-0 text-[11.5px]",
+                                isLead ? "font-medium text-foreground" : "text-muted"
+                              )}
+                            >
+                              {ROLE_LABELS[roleName] ?? roleName}
+                            </span>
+                          )}
+
+                          {/* Actions stay hidden until the row is hovered, so a
+                              list of twenty people isn't twenty buttons. */}
+                          {(canModerate || isMe) && (
+                            <DropdownMenu
+                              trigger={
+                                <IconButton
+                                  label="Member actions"
+                                  size="xs"
+                                  variant="ghost"
+                                  className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                                >
                                   <MoreHorizontal className="h-3 w-3" />
                                 </IconButton>
-                              }>
-                                <DropdownMenuLabel>Member</DropdownMenuLabel>
-                                {canModerate && !isLead && leadRoleId && (
-                                  <DropdownMenuItem icon={<Star />} onSelect={() => promoteToLead(m.users!.id)}>
-                                    Promote to lead
+                              }
+                            >
+                              <DropdownMenuLabel>Member</DropdownMenuLabel>
+                              {canModerate && !isLead && leadRoleId && (
+                                <DropdownMenuItem
+                                  icon={<Star />}
+                                  onSelect={() => promoteToLead(m.users!.id)}
+                                >
+                                  Promote to lead
+                                </DropdownMenuItem>
+                              )}
+                              {canModerate && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    icon={<Trash2 />}
+                                    variant="danger"
+                                    onSelect={() => m.users && removeMember(m.users.id)}
+                                  >
+                                    {isMe ? "Leave team" : "Remove"}
                                   </DropdownMenuItem>
-                                )}
-                                {canModerate && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem icon={<Trash2 />} variant="danger" onSelect={() => m.users && removeMember(m.users.id)}>
-                                      {m.users?.id === currentUserId ? "Leave team" : "Remove"}
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenu>
-                            )}
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </section>
-
-                {/* Tasks */}
-                <section className="rounded-xl border border-border bg-surface overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-border px-5 py-3">
-                    <div>
-                      <h3 className="text-[13px] font-semibold text-foreground">Tasks</h3>
-                      <p className="text-[11.5px] text-faint">{active.tasks.length} total</p>
-                    </div>
-                    <Button size="xs" variant="secondary" onClick={() => setShowAddTask(true)}>
-                      <Plus className="h-3 w-3" /> Add
-                    </Button>
-                  </div>
-                  {active.tasks.length === 0 ? (
-                    <div className="p-5">
-                      <EmptyState variant="compact" icon={<CheckSquare />}
-                        title="No tasks yet"
-                        description="Add a task or route a request to assign work."
-                        action={{ label: "Add task", onClick: () => setShowAddTask(true) }} />
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-border max-h-[360px] overflow-y-auto">
-                      {active.tasks.slice(0, 8).map((task) => (
-                        <li key={task.id} className="flex items-center gap-2 px-5 py-2.5">
-                          <span className="text-[13px] text-foreground flex-1 truncate">{task.title}</span>
-                          <StatusBadge status={task.status} size="sm" />
+                                </>
+                              )}
+                            </DropdownMenu>
+                          )}
                         </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
+                      )
+                    })}
+                  </ul>
+                )}
+              </section>
 
-                {/* Requests */}
-                <section className="rounded-xl border border-border bg-surface overflow-hidden">
-                  <div className="border-b border-border px-5 py-3">
-                    <h3 className="text-[13px] font-semibold text-foreground">Routed requests</h3>
-                    <p className="text-[11.5px] text-faint">{teamRequests.length} total</p>
-                  </div>
-                  {teamRequests.length === 0 ? (
-                    <div className="p-5">
-                      <EmptyState variant="compact" icon={<Inbox />} title="No requests" description="Routed requests will show up here." />
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-border max-h-[360px] overflow-y-auto">
-                      {teamRequests.slice(0, 8).map((r) => (
-                        <li key={r.id}>
-                          <a
-                            href={`/requests?id=${r.id}`}
-                            className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-hover transition-colors"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[13px] font-medium text-foreground truncate">{r.title}</p>
-                              <p className="text-[11.5px] text-faint truncate">{r.requesting_unit}</p>
-                            </div>
-                            <StatusBadge status={r.status} size="sm" />
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
+              {/* ── Secondary ─────────────────────────────────────
+                  Tasks, requests and equipment are consequences of the team,
+                  not peers of it — so they are summaries that link out rather
+                  than four equal panels competing with the member list. */}
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <Panel
+                  title="Tasks"
+                  count={openTaskCount}
+                  countLabel={openTaskCount === 1 ? "open" : "open"}
+                  action={
+                    canModerate
+                      ? { label: "Add", onClick: () => setShowAddTask(true) }
+                      : undefined
+                  }
+                  empty={active.tasks.length === 0 ? "Nothing assigned yet" : undefined}
+                >
+                  {active.tasks.slice(0, 4).map((task) => (
+                    <PanelRow key={task.id} label={task.title}>
+                      <StatusBadge status={task.status} size="sm" />
+                    </PanelRow>
+                  ))}
+                  {active.tasks.length > 4 && (
+                    <PanelMore href="/requests" count={active.tasks.length - 4} />
                   )}
-                </section>
+                </Panel>
 
-                {/* Equipment summary */}
-                <section className="rounded-xl border border-border bg-surface overflow-hidden">
-                  <div className="border-b border-border px-5 py-3">
-                    <h3 className="text-[13px] font-semibold text-foreground">Equipment</h3>
-                    <p className="text-[11.5px] text-faint">{teamEquipment.length} items</p>
-                  </div>
-                  <div className="p-5 grid grid-cols-2 gap-3">
-                    <Stat
-                      label="Good"
+                <Panel
+                  title="Requests"
+                  count={teamRequests.length}
+                  countLabel="routed"
+                  empty={teamRequests.length === 0 ? "None routed here" : undefined}
+                >
+                  {teamRequests.slice(0, 4).map((r) => (
+                    <PanelRow key={r.id} label={r.title} href={`/requests?id=${r.id}`}>
+                      <StatusBadge status={r.status} size="sm" />
+                    </PanelRow>
+                  ))}
+                  {teamRequests.length > 4 && (
+                    <PanelMore href="/requests" count={teamRequests.length - 4} />
+                  )}
+                </Panel>
+
+                <Panel
+                  title="Equipment"
+                  count={teamEquipment.length}
+                  countLabel="items"
+                  empty={teamEquipment.length === 0 ? "None assigned" : undefined}
+                >
+                  {/* Condition is the only thing worth surfacing here — a list of
+                      item names would just duplicate the equipment page. */}
+                  <div className="space-y-1.5 px-4 py-3">
+                    <ConditionBar
+                      label="In good order"
                       value={teamEquipment.filter((e) => e.condition_status === "good").length}
+                      total={teamEquipment.length}
                       tone="success"
                     />
-                    <Stat
-                      label="Issues"
-                      value={teamEquipment.filter((e) => ["faulty", "missing", "under_repair"].includes(e.condition_status)).length}
+                    <ConditionBar
+                      label="Needs attention"
+                      value={equipmentIssues}
+                      total={teamEquipment.length}
                       tone="danger"
                     />
-                    <Stat
-                      label="Available"
-                      value={teamEquipment.filter((e) => e.availability_status === "available").length}
-                    />
-                    <Stat
-                      label="In use"
-                      value={teamEquipment.filter((e) => e.availability_status === "checked_out" || e.availability_status === "assigned").length}
+                    <ConditionBar
+                      label="Checked out"
+                      value={
+                        teamEquipment.filter((e) =>
+                          ["checked_out", "assigned"].includes(e.availability_status)
+                        ).length
+                      }
+                      total={teamEquipment.length}
+                      tone="neutral"
                     />
                   </div>
-                </section>
+                </Panel>
               </div>
             </div>
           )}
@@ -553,21 +683,6 @@ function JoinRequestModal({
   )
 }
 
-function Stat({ label, value, tone = "default" }: { label: string; value: number | string; tone?: "default" | "success" | "danger" }) {
-  return (
-    <div className="rounded-md border border-border bg-surface-subtle/40 px-3 py-2">
-      <p className="text-[10.5px] font-semibold uppercase tracking-wider text-faint">{label}</p>
-      <p className={cn(
-        "text-[18px] font-semibold tabular-nums leading-none mt-1",
-        tone === "success" && "text-success",
-        tone === "danger" && "text-danger",
-        tone === "default" && "text-foreground"
-      )}>
-        {value}
-      </p>
-    </div>
-  )
-}
 
 function AddMemberModal({
   open, onClose, allUsers, currentMemberIds, onAdd,
@@ -699,5 +814,151 @@ function AddTaskModal({
         </FormField>
       </div>
     </Modal>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────── */
+/*  Secondary panel primitives                                        */
+/*                                                                    */
+/*  Deliberately lighter than the members section: smaller header,     */
+/*  tighter rows, and a count in the header rather than a stat box.    */
+/*  They summarise and link out; the page they link to is where the    */
+/*  full list belongs.                                                */
+/* ────────────────────────────────────────────────────────────────── */
+
+function Dot() {
+  return <span aria-hidden className="text-faint">·</span>
+}
+
+/** True when this member is a lead — used to draw the leadership divider. */
+function leadIsLead(m?: { roles?: { name?: string } | null }) {
+  const n = m?.roles?.name
+  return n === "sub_team_lead" || n === "assistant_lead"
+}
+
+function Panel({
+  title,
+  count,
+  countLabel,
+  action,
+  empty,
+  children,
+}: {
+  title: string
+  count: number
+  countLabel: string
+  action?: { label: string; onClick: () => void }
+  empty?: string
+  children?: React.ReactNode
+}) {
+  return (
+    <section className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <div className="flex items-baseline gap-1.5">
+          <h3 className="text-[12.5px] font-semibold text-foreground">{title}</h3>
+          <span className="text-[11.5px] tabular-nums text-faint">
+            {count} {countLabel}
+          </span>
+        </div>
+        {action && (
+          <Button size="xs" variant="ghost" onClick={action.onClick}>
+            {action.label}
+          </Button>
+        )}
+      </div>
+
+      {empty ? (
+        <p className="px-4 py-6 text-center text-[12px] text-faint">{empty}</p>
+      ) : (
+        <div className="divide-y divide-border-subtle">{children}</div>
+      )}
+    </section>
+  )
+}
+
+function PanelRow({
+  label,
+  href,
+  children,
+}: {
+  label: string
+  href?: string
+  children?: React.ReactNode
+}) {
+  const inner = (
+    <>
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">{label}</span>
+      {children}
+    </>
+  )
+
+  return href ? (
+    <a
+      href={href}
+      className="flex items-center gap-2 px-4 py-2 transition-colors duration-100 hover:bg-surface-subtle/50"
+    >
+      {inner}
+    </a>
+  ) : (
+    <div className="flex items-center gap-2 px-4 py-2">{inner}</div>
+  )
+}
+
+function PanelMore({ href, count }: { href: string; count: number }) {
+  return (
+    <a
+      href={href}
+      className="flex items-center gap-1 px-4 py-2 text-[11.5px] text-muted transition-colors hover:text-foreground"
+    >
+      {count} more
+      <ChevronRight className="size-3" />
+    </a>
+  )
+}
+
+/**
+ * A proportion, shown as a bar rather than a bare number.
+ *
+ * "3 faulty" means nothing without knowing the team has four items or forty. The bar
+ * carries that ratio at a glance, which is the actual question being asked.
+ */
+function ConditionBar({
+  label,
+  value,
+  total,
+  tone,
+}: {
+  label: string
+  value: number
+  total: number
+  tone: "success" | "danger" | "neutral"
+}) {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11.5px] text-muted">{label}</span>
+        <span
+          className={cn(
+            "text-[11.5px] font-medium tabular-nums",
+            tone === "danger" && value > 0 ? "text-danger" : "text-foreground"
+          )}
+        >
+          {value}
+        </span>
+      </div>
+      <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--surface-subtle)]">
+        <div
+          className={cn(
+            "h-full rounded-full transition-[width] duration-500 ease-[var(--ease-out-expo)]",
+            tone === "success" && "bg-[var(--success)]",
+            tone === "danger" && "bg-danger",
+            tone === "neutral" && "bg-muted"
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
   )
 }
