@@ -56,6 +56,7 @@ export function DayPopover({
   onSchedule,
   onRespond,
   onRemove,
+  onSetRole,
 }: {
   date: Date
   anchor: DOMRect
@@ -69,6 +70,7 @@ export function DayPopover({
   onSchedule: () => void
   onRespond: (dutyId: string, status: "confirmed" | "declined") => void
   onRemove: (dutyId: string) => void
+  onSetRole: (dutyId: string, role: string) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -174,10 +176,35 @@ export function DayPopover({
                       >
                         {d.users?.full_name ?? "Unassigned"}
                       </span>
-                      <span className="block truncate text-[11px] text-muted">
-                        {d.sub_teams?.name}
-                        {d.role_title && ` · ${d.role_title}`}
-                      </span>
+
+                      {/* The role is set here rather than only at scheduling time —
+                          you usually know who is on long before what they'll be doing. */}
+                      {canSchedule ? (
+                        <input
+                          defaultValue={d.role_title ?? ""}
+                          placeholder="Add a role…"
+                          onBlur={(e) => {
+                            if (e.target.value !== (d.role_title ?? "")) {
+                              onSetRole(d.id, e.target.value)
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur()
+                            if (e.key === "Escape") {
+                              e.currentTarget.value = d.role_title ?? ""
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          className="mt-0.5 w-full truncate rounded-[3px] bg-transparent text-[11px] text-muted outline-none
+                                     transition-colors placeholder:text-faint hover:bg-[var(--surface-subtle)]
+                                     focus:bg-[var(--surface-subtle)] focus:text-foreground"
+                        />
+                      ) : (
+                        <span className="block truncate text-[11px] text-muted">
+                          {d.sub_teams?.name}
+                          {d.role_title && ` · ${d.role_title}`}
+                        </span>
+                      )}
                     </span>
 
                     {d.status === "confirmed" && (

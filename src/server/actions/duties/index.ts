@@ -187,6 +187,32 @@ export async function assignDutyBulk(input: {
   return { success: true, added, skipped: input.dates.length - added }
 }
 
+/**
+ * Set or clear what someone is doing on a given day.
+ *
+ * Roles are per-duty rather than per-person, because the same person does different
+ * jobs on different Sundays — overflow screen one week, lyrics the next. Scheduling
+ * can happen without one and the role filled in later, which is the common shape: you
+ * know who is on long before you know what they will be doing.
+ */
+export async function setDutyRole(dutyId: string, roleTitle: string) {
+  const guard = await requireScheduler()
+  if (!guard.ok) return { error: guard.error }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("duty_assignments")
+    .update({
+      role_title: roleTitle.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", dutyId)
+
+  if (error) return { error: error.message }
+  revalidatePath("/calendar")
+  return { success: true }
+}
+
 export async function removeDuty(dutyId: string) {
   const guard = await requireScheduler()
   if (!guard.ok) return { error: guard.error }

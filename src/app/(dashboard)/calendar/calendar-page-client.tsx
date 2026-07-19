@@ -22,7 +22,7 @@ import {
 
 import { cn } from "@/lib/utils/cn"
 import { useToast } from "@/lib/toast/toast-context"
-import { removeDuty, respondToDuty } from "@/server/actions/duties"
+import { removeDuty, respondToDuty, setDutyRole } from "@/server/actions/duties"
 import { resolveTeamColor, TEAM_COLORS, type TeamColor } from "./team-colors"
 import { MonthGrid, WeekGrid, type CalendarEntry } from "./calendar-grid"
 import { DayPopover } from "./day-popover"
@@ -386,6 +386,13 @@ export function CalendarPageClient({
           onRespond={(id, status) =>
             startTransition(async () => {
               const r = await respondToDuty(id, status)
+              if (r.error) toast.error(r.error)
+              else router.refresh()
+            })
+          }
+          onSetRole={(id, role) =>
+            startTransition(async () => {
+              const r = await setDutyRole(id, role)
               if (r.error) toast.error(r.error)
               else router.refresh()
             })

@@ -7,6 +7,7 @@ import { Search, Users } from "lucide-react"
 import { cn } from "@/lib/utils/cn"
 import { assignDutyBulk } from "@/server/actions/duties"
 import { TEAM_COLORS, type TeamColor } from "./team-colors"
+import { DatePickerGrid } from "./date-picker-grid"
 
 import { Modal } from "@/components/ui/modal"
 import { Button } from "@/components/ui/button"
@@ -58,7 +59,10 @@ export function ScheduleModal({
   const [personId, setPersonId] = useState<string | null>(null)
   const [teamId, setTeamId] = useState<string | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [role, setRole] = useState("")
   const [saving, setSaving] = useState(false)
+  /** The picker navigates independently of the calendar behind it. */
+  const [viewMonth, setViewMonth] = useState(month)
 
   const person = people.find((p) => p.id === personId) ?? null
   const personTeams = person ? teams.filter((t) => person.teamIds.includes(t.id)) : []
@@ -70,9 +74,11 @@ export function ScheduleModal({
     return q ? people.filter((p) => p.full_name.toLowerCase().includes(q)) : people
   }, [people, query])
 
+  // Follows the picker, not the calendar behind — a weekday shortcut should act on the
+  // month you are looking at.
   const days = useMemo(
-    () => eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) }),
-    [month]
+    () => eachDayOfInterval({ start: startOfMonth(viewMonth), end: endOfMonth(viewMonth) }),
+    [viewMonth]
   )
 
   // A single map lookup — not worth memoizing, and the compiler can't preserve it.
@@ -119,6 +125,7 @@ export function ScheduleModal({
       userId: person.id,
       subTeamId: resolvedTeam,
       dates: [...picked].sort(),
+      roleTitle: role.trim() || undefined,
     })
     setSaving(false)
     if (res.error) return onError(res.error)
@@ -130,7 +137,23 @@ export function ScheduleModal({
   }
 
   const palette = resolvedTeam ? TEAM_COLORS[colorFor.get(resolvedTeam) ?? "blue"] : null
-  const sortedPicked = [...picked].sort()
+
+  /**
+   * Reads as dates rather than a count: "6, 13, 20 July" is checkable at a glance,
+   * "3 days" is not. Collapses to a count once the list would be longer than the line.
+   */
+  const summary = (() => {
+    const sorted = [...picked].sort()
+    if (sorted.length === 0) return ""
+    if (sorted.length > 6) return `${sorted.length} dates selected`
+    const byMonth = new Map<string, string[]>()
+    for (const iso of sorted) {
+      const d = new Date(`${iso}T12:00:00`)
+      const key = format(d, "MMMM")
+      byMonth.set(key, [...(byMonth.get(key) ?? []), format(d, "d")])
+    }
+    return [...byMonth.entries()].map(([m, ds]) => `${ds.join(", ")} ${m}`).join(" · ")
+  })()
 
   return (
     <Modal
@@ -270,81 +293,57 @@ export function ScheduleModal({
 
         {/* ── When ────────────────────────────────────────────── */}
         <section className={cn(!person && "pointer-events-none opacity-40")}>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-              When
-            </h3>
-            <div className="flex gap-0.5">
-              {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => pickWeekday(i)}
-                  className="grid size-6 place-items-center rounded text-[11px] font-medium text-muted transition-colors hover:bg-surface-subtle hover:text-foreground"
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-          </div>
+          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+            When
+          </h3>
 
-          <div className="grid grid-cols-7 gap-1">
-            {Array.from({ length: startOfMonth(month).getDay() }).map((_, i) => (
-              <span key={`pad-${i}`} />
-            ))}
-            {days.map((d) => {
-              const iso = toIso(d)
-              const on = picked.has(iso)
-              const taken = already.has(iso)
-              return (
-                <button
-                  key={iso}
-                  type="button"
-                  disabled={taken}
-                  onClick={() => toggleDay(iso)}
-                  title={taken ? "Already on duty this day" : undefined}
-                  className={cn(
-                    "relative grid h-9 place-items-center rounded-md border text-[12.5px] tabular-nums",
-                    "transition-[background-color,border-color,color] duration-100 ease-[var(--ease-out-quart)]",
-                    taken
-                      ? "cursor-not-allowed border-transparent bg-[var(--surface-subtle)] text-faint"
-                      : on
-                        ? "border-primary bg-primary font-medium text-[var(--color-primary-foreground)]"
-                        : "border-border bg-surface text-muted hover:border-border-strong hover:text-foreground"
-                  )}
-                >
-                  {format(d, "d")}
-                  {taken && (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute bottom-1 size-1 rounded-full",
-                        palette?.dot ?? "bg-muted"
-                      )}
-                    />
-                  )}
-                </button>
-              )
-            })}
+          <div className="rounded-md border border-border bg-surface p-3">
+            <DatePickerGrid
+              month={viewMonth}
+              onMonthChange={setViewMonth}
+              picked={picked}
+              taken={already}
+              onToggle={toggleDay}
+              onToggleWeekday={pickWeekday}
+              accentDot={palette?.dot}
+            />
           </div>
 
           {/* Says what will happen, in the words you'd use out loud. */}
-          <p className="mt-2.5 flex items-center gap-1.5 text-[11.5px] text-muted">
-            <Users className="size-3.5 shrink-0 text-faint" />
+          <p className="mt-2 flex items-start gap-1.5 text-[11.5px] leading-relaxed text-muted">
+            <Users className="mt-0.5 size-3.5 shrink-0 text-faint" />
             {picked.size === 0 ? (
               already.size > 0 ? (
-                <>Already on {already.size} day{already.size === 1 ? "" : "s"} this month</>
+                <span>
+                  Already on {already.size} day{already.size === 1 ? "" : "s"}. Tap dates, or a
+                  weekday letter to select the whole column.
+                </span>
               ) : (
-                <>Tap days, or a weekday letter for all of them</>
+                <span>Tap dates, or a weekday letter to select the whole column.</span>
               )
             ) : (
-              <>
-                <span className="font-medium text-foreground">
-                  {sortedPicked.map((d) => format(new Date(`${d}T12:00:00`), "d")).join(", ")}
-                </span>
-                <span>{format(month, "MMMM")}</span>
-              </>
+              <span>
+                <span className="font-medium text-foreground">{summary}</span>
+              </span>
             )}
+          </p>
+        </section>
+
+        {/* ── Doing what ──────────────────────────────────────── */}
+        <section className={cn(!person && "pointer-events-none opacity-40")}>
+          <div className="mb-2 flex items-baseline justify-between">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+              Role
+            </h3>
+            <span className="text-[11px] text-faint">Optional</span>
+          </div>
+          <Input
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            placeholder="Running overflow screen, lyrics, camera 2…"
+          />
+          <p className="mt-1.5 text-[11.5px] text-muted">
+            Applies to every date selected. You can change it per day afterwards.
           </p>
         </section>
       </div>
