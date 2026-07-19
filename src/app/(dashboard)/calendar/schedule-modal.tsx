@@ -69,9 +69,17 @@ export function ScheduleModal({
   /** One team is the common case, so it resolves silently; several needs a choice. */
   const resolvedTeam = teamId ?? (personTeams.length === 1 ? personTeams[0].id : null)
 
+  /**
+   * Results only appear once you type.
+   *
+   * Listing everyone up front pushes the date picker below the fold and gets worse as
+   * the campus grows — a search box you have to scroll past is a search box that isn't
+   * doing its job. Capped, because a query matching thirty people has the same problem.
+   */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q ? people.filter((p) => p.full_name.toLowerCase().includes(q)) : people
+    if (!q) return []
+    return people.filter((p) => p.full_name.toLowerCase().includes(q)).slice(0, 6)
   }, [people, query])
 
   // Follows the picker, not the calendar behind — a weekday shortcut should act on the
@@ -243,12 +251,17 @@ export function ScheduleModal({
                 />
               </div>
 
-              <ul className="mt-2 max-h-[188px] space-y-0.5 overflow-y-auto">
-                {filtered.length === 0 && (
-                  <li className="px-2 py-6 text-center text-[12.5px] text-faint">
-                    Nobody matches
-                  </li>
-                )}
+              {query.trim() === "" ? (
+                <p className="mt-2 px-1 text-[11.5px] text-faint">
+                  {people.length} {people.length === 1 ? "person" : "people"} available — start
+                  typing to find someone.
+                </p>
+              ) : filtered.length === 0 ? (
+                <p className="mt-2 px-1 text-[11.5px] text-faint">
+                  Nobody matches “{query.trim()}”
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-0.5">
                 {filtered.map((p) => {
                   const theirTeams = teams.filter((t) => p.teamIds.includes(t.id))
                   return (
@@ -286,7 +299,8 @@ export function ScheduleModal({
                     </li>
                   )
                 })}
-              </ul>
+                </ul>
+              )}
             </>
           )}
         </section>
