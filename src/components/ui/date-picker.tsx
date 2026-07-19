@@ -130,9 +130,16 @@ export function DatePicker({ value, onChange, placeholder = "Select date", class
 
             {/* Day-of-week headers */}
             <div className="grid grid-cols-7 px-3 pb-1">
-              {DAYS.map((d) => (
+              {/*
+                Keyed by index, not by the letter: "S" and "T" each appear twice
+                in a week, so the label is not unique and React was warning that
+                children could be duplicated or omitted. A fixed, ordered list is
+                exactly the case where the index is the correct key.
+              */}
+              {DAYS.map((d, i) => (
                 <div
-                  key={d}
+                  key={i}
+                  aria-hidden="true"
                   className="flex h-8 items-center justify-center text-[11px] font-medium text-faint select-none"
                 >
                   {d}

@@ -108,9 +108,24 @@ export async function submitPublicRequest(
     }
   }
 
-  await notifyNewRequest(request.id, request.title, selectedSubTeamIds)
+  /*
+    Everything past this point is a side effect of a request that is already
+    saved. Letting either of these throw would reject the whole server action,
+    and the caller would lose the tracking id for a submission that did in fact
+    succeed — the user sees a hang, the row exists, and nobody can reconcile the
+    two. Notifications and counters are best-effort by nature; log and continue.
+  */
+  try {
+    await notifyNewRequest(request.id, request.title, selectedSubTeamIds)
+  } catch (err) {
+    console.error("Request filed but notification failed:", err)
+  }
 
-  await admin.rpc("increment_public_link_count" as never, { link_id: link.id } as never)
+  try {
+    await admin.rpc("increment_public_link_count" as never, { link_id: link.id } as never)
+  } catch (err) {
+    console.error("Request filed but link counter failed:", err)
+  }
 
   return {
     success: true,

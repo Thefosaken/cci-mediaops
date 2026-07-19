@@ -60,38 +60,62 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
     setLoading(true)
     setError(null)
 
-    const result = await submitPublicRequest(token, form)
-
-    if (result.error) {
-      setLoading(false)
-      setError(result.error)
-      return
-    }
-
     /*
-      Files go up after the request exists — each one is authorised against this
-      same token server-side before a single byte is accepted. A failure here is
-      not a failed submission: the request is filed and tracked either way, so it
-      is reported on the confirmation screen rather than sending someone back to
-      a form they have already completed.
+      Everything is wrapped, and `loading` is cleared in `finally`.
+      Without this, anything that *throws* rather than returning an error — a
+      server action rejecting, a dropped connection mid-upload — leaves the
+      button spinning forever with nothing said. A form that hangs silently is
+      worse than one that fails loudly: the person cannot tell whether their
+      request was filed, so they either give up or submit it four more times.
     */
-    if (attachments.length > 0 && result.requestId) {
-      const failures = await uploadStagedAttachments(attachments, {
-        requestId: result.requestId,
-        token
-      })
-      if (failures.length > 0) {
-        setAttachmentWarning(
-          failures.length === 1
-            ? failures[0]
-            : `${failures.length} of your files couldn't be attached. Mention them when the team follows up.`
-        )
-      }
-    }
+    try {
+      const result = await submitPublicRequest(token, form)
 
-    setLoading(false)
-    setTrackingId(result.trackingId ?? null)
-    setSubmitted(true)
+      if (result.error) {
+        setError(result.error)
+        return
+      }
+
+      /*
+        Files go up after the request exists — each one is authorised against
+        this same token server-side before a single byte is accepted. A failure
+        here is not a failed submission: the request is filed and tracked either
+        way, so it is reported on the confirmation screen rather than sending
+        someone back to a form they have already completed.
+      */
+      if (attachments.length > 0 && result.requestId) {
+        try {
+          const failures = await uploadStagedAttachments(attachments, {
+            requestId: result.requestId,
+            token
+          })
+          if (failures.length > 0) {
+            setAttachmentWarning(
+              failures.length === 1
+                ? failures[0]
+                : `${failures.length} of your files couldn't be attached. Mention them when the team follows up.`
+            )
+          }
+        } catch {
+          // The request is saved; only the files failed. Say so on the
+          // confirmation screen rather than losing the tracking id.
+          setAttachmentWarning(
+            "Your files couldn't be attached, but your request was submitted. Mention them when the team follows up."
+          )
+        }
+      }
+
+      setTrackingId(result.trackingId ?? null)
+      setSubmitted(true)
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? `Could not submit your request: ${err.message}`
+          : "Could not submit your request. Check your connection and try again."
+      )
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (submitted) {
