@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { Check } from "lucide-react"
 import { cn } from "@/lib/utils/cn"
 
 interface DropdownMenuProps {
@@ -127,6 +128,12 @@ interface MenuItemProps
   variant?: "default" | "danger"
   icon?: React.ReactNode
   shortcut?: React.ReactNode
+  /**
+   * Marks this item as the current value. Renders a trailing check and sets
+   * `aria-checked`, which is what makes the item a real menu radio rather than
+   * a button that happens to have a tick next to it.
+   */
+  selected?: boolean
 }
 
 export function DropdownMenuItem({
@@ -135,6 +142,7 @@ export function DropdownMenuItem({
   variant = "default",
   icon,
   shortcut,
+  selected,
   children,
   ...props
 }: MenuItemProps) {
@@ -142,7 +150,8 @@ export function DropdownMenuItem({
   return (
     <button
       type="button"
-      role="menuitem"
+      role={selected === undefined ? "menuitem" : "menuitemradio"}
+      aria-checked={selected === undefined ? undefined : selected}
       onClick={() => {
         onSelect?.()
         ctx?.close()
@@ -162,6 +171,16 @@ export function DropdownMenuItem({
       {icon && <span className="text-faint">{icon}</span>}
       <span className="flex-1 text-left truncate">{children}</span>
       {shortcut && <span className="text-faint">{shortcut}</span>}
+      {/*
+        The check follows the label it confirms — you read the option, then its
+        state. The slot is held whether or not the item is selected, so labels
+        don't shift as the selection moves.
+      */}
+      {selected !== undefined && (
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+          {selected && <Check className="text-primary" aria-hidden="true" />}
+        </span>
+      )}
     </button>
   )
 }

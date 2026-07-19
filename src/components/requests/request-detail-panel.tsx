@@ -231,7 +231,10 @@ function EditableField({
           className={cn(
             // The hover surface bleeds 8px/4px past the token on negative
             // margins, so it never changes the row's height or its left edge.
-            "group/edit -mx-2 -my-1 inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-left",
+            // gap-2, not gap-1: at 4px the chevron sat against the pill's
+            // rounded edge and read as part of the badge rather than as a
+            // control beside it.
+            "group/edit -mx-2 -my-1 inline-flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-left",
             "transition-colors duration-[120ms] ease-out hover:bg-surface-subtle",
             "aria-[expanded=true]:bg-surface-subtle",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
@@ -254,13 +257,7 @@ function EditableField({
         <DropdownMenuItem
           key={option.value}
           onSelect={() => onSelect(field, option.value)}
-          icon={
-            option.value === current ? (
-              <Check aria-hidden="true" />
-            ) : (
-              <span className="block h-3.5 w-3.5" />
-            )
-          }
+          selected={option.value === current}
         >
           {option.label}
         </DropdownMenuItem>
