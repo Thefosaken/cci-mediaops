@@ -107,8 +107,6 @@ export interface AttachmentViewerProps {
    * dead link, so the retry affordance is hidden.
    */
   onRetry?: () => void | Promise<void>
-  /** Focus goes back here on close. Falls back to whatever was focused on open. */
-  returnFocusTo?: HTMLElement | null
 }
 
 /**
@@ -128,8 +126,7 @@ export function AttachmentViewer({
   index,
   onIndexChange,
   onClose,
-  onRetry,
-  returnFocusTo
+  onRetry
 }: AttachmentViewerProps) {
   const titleId = React.useId()
   const panelRef = React.useRef<HTMLDivElement>(null)
@@ -146,6 +143,17 @@ export function AttachmentViewer({
   const hasPrev = position > 0
   const hasNext = position < total - 1
 
+  /**
+   * Close, then hand focus back to whatever opened the viewer. The frame's delay
+   * is deliberate: the portal has to unmount first, or the browser parks focus
+   * on `<body>` immediately afterwards and the restore is undone.
+   */
+  const closeAndRestore = React.useCallback(() => {
+    const target = restoreRef.current
+    onClose()
+    window.requestAnimationFrame(() => target?.focus())
+  }, [onClose])
+
   const refresh = React.useCallback(async () => {
     if (!onRetry) return
     setRefreshing(true)
@@ -156,7 +164,13 @@ export function AttachmentViewer({
     }
   }, [onRetry])
 
-  // Remember where focus came from, on the open transition only.
+  /*
+    Remember where focus came from, on the open transition only. Reading it here
+    rather than taking the element as a prop is what keeps it correct: at the
+    point this effect runs, React has committed the render the click caused but
+    the browser has not moved focus, so `activeElement` is still the card that
+    was clicked.
+  */
   React.useEffect(() => {
     if (!open) return
     const active = document.activeElement
@@ -190,7 +204,7 @@ export function AttachmentViewer({
         case "Escape":
           event.preventDefault()
           event.stopPropagation()
-          onClose()
+          closeAndRestore()
           break
         case "ArrowRight":
           if (position >= total - 1) return
@@ -208,7 +222,7 @@ export function AttachmentViewer({
     }
     document.addEventListener("keydown", onKeyDown, true)
     return () => document.removeEventListener("keydown", onKeyDown, true)
-  }, [open, onClose, onIndexChange, position, total])
+  }, [open, closeAndRestore, onIndexChange, position, total])
 
   /**
    * Pre-emptive refresh: the link this item was minted with has already expired,
@@ -229,13 +243,6 @@ export function AttachmentViewer({
   React.useEffect(() => {
     if (open && total === 0) onClose()
   }, [open, total, onClose])
-
-  function handleClose() {
-    const target = returnFocusTo ?? restoreRef.current
-    onClose()
-    // After the portal unmounts, or the browser parks focus on <body>.
-    window.requestAnimationFrame(() => target?.focus())
-  }
 
   /** Tab must not walk out of the overlay and into the page underneath it. */
   function trapTab(event: React.KeyboardEvent) {
@@ -276,7 +283,7 @@ export function AttachmentViewer({
         type="button"
         aria-label="Close attachment viewer"
         tabIndex={-1}
-        onClick={handleClose}
+        onClick={closeAndRestore}
         className={cn(
           "absolute inset-0 h-full w-full cursor-default bg-black/75 backdrop-blur-[3px]",
           "motion-safe:animate-fade-in [animation-duration:180ms]"
@@ -298,7 +305,7 @@ export function AttachmentViewer({
           )}
         >
           {/* Header — what it is, then the two things worth doing with it. */}
-          <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+          <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-2.5">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-subtle text-muted">
               <Icon aria-hidden="true" className="h-4 w-4" />
             </span>
@@ -319,8 +326,11 @@ export function AttachmentViewer({
               <a
                 href={downloadUrl(item.signed_url, item.file_name)}
                 download={item.file_name}
+                // h-11, like the detail panel's header controls: §17.1 puts the
+                // floor for a touch target at 44px and this is the one action
+                // most likely to be taken on a phone.
                 className={cn(
-                  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium",
+                  "inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md px-4 text-[13px] font-medium",
                   "border border-border bg-surface text-foreground shadow-sm",
                   "transition-[background,color,border-color,transform] duration-[120ms] ease-[var(--ease-out-quart)]",
                   "hover:bg-surface-hover hover:border-border-strong active:scale-[0.98]",
@@ -331,7 +341,12 @@ export function AttachmentViewer({
                 Download
               </a>
             )}
-            <IconButton label="Close attachment viewer" size="sm" onClick={handleClose}>
+            <IconButton
+              label="Close attachment viewer"
+              size="sm"
+              className="h-11 w-11"
+              onClick={closeAndRestore}
+            >
               <X className="h-4 w-4" />
             </IconButton>
           </header>
@@ -507,8 +522,11 @@ function AttachmentStage({
           title={`${attachment.file_name} preview`}
           onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}
+          // Absolutely positioned rather than `h-full`: the stage centres its
+          // child, and a percentage height against a centred flex item is not
+          // reliable. `inset-0` fills it regardless of alignment.
           className={cn(
-            "h-full w-full border-0",
+            "absolute inset-0 h-full w-full border-0",
             "transition-opacity duration-[180ms] ease-[var(--ease-out-quart)]",
             loaded ? "opacity-100" : "opacity-0"
           )}

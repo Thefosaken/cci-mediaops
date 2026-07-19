@@ -2,16 +2,7 @@
 
 import * as React from "react"
 import { format } from "date-fns"
-import {
-  File as FileIcon,
-  FileSpreadsheet,
-  FileText,
-  Image as ImageIcon,
-  Loader2,
-  Presentation,
-  Upload,
-  X
-} from "lucide-react"
+import { Loader2, Paperclip, Upload, X } from "lucide-react"
 
 import { IconButton } from "@/components/ui/button"
 import { cn } from "@/lib/utils/cn"
@@ -26,9 +17,11 @@ import {
   describeTotalRejection,
   formatBytes
 } from "@/lib/attachments"
-import type { AttachmentKind, RequestAttachment } from "@/lib/attachments"
+import type { RequestAttachment } from "@/lib/attachments"
 import { uploadAttachment } from "@/lib/attachments/upload"
 import { deleteRequestAttachment, listRequestAttachments } from "@/server/actions/attachments"
+
+import { ATTACHMENT_KIND_ICON, AttachmentViewer } from "./attachment-viewer"
 
 export interface AttachmentFieldProps {
   /**
@@ -55,19 +48,18 @@ export interface AttachmentFieldProps {
   /** Live mode: fired after a successful upload or removal, for `router.refresh()`. */
   onChanged?: () => void
   disabled?: boolean
+  /**
+   * View the attachments without being able to change them: no drop zone, no
+   * file picker, no remove buttons. Opening a file in the viewer still works.
+   *
+   * `disabled` is not the same thing — that is a temporary "not right now"
+   * (a form mid-submit) and keeps the target on screen, greyed. This says the
+   * surface has no upload affordance at all, so it doesn't render one.
+   */
+  readOnly?: boolean
   /** Heading above the drop zone. */
   label?: string
   className?: string
-}
-
-const KIND_ICON: Record<AttachmentKind, React.ComponentType<{ className?: string }>> = {
-  image: ImageIcon,
-  pdf: FileText,
-  doc: FileText,
-  sheet: FileSpreadsheet,
-  slides: Presentation,
-  text: FileText,
-  file: FileIcon
 }
 
 /** An upload in flight. Kept apart from saved rows — it has no id and no URL yet. */
@@ -95,6 +87,7 @@ export function AttachmentField({
   onFilesChange,
   onChanged,
   disabled,
+  readOnly = false,
   label = "Attachments",
   className
 }: AttachmentFieldProps) {
@@ -122,6 +115,13 @@ export function AttachmentField({
   const [rejections, setRejections] = React.useState<string[]>([])
   const [status, setStatus] = React.useState("")
   const [removing, setRemoving] = React.useState<string | null>(null)
+
+  /**
+   * Which saved attachment the viewer is showing, or null for closed. Only saved
+   * rows are viewable — a staged file has no signed URL yet, and inventing an
+   * object URL for it would preview a file that isn't attached to anything.
+   */
+  const [viewing, setViewing] = React.useState<number | null>(null)
 
   const load = React.useCallback(async () => {
     if (!requestId) return
@@ -278,81 +278,102 @@ export function AttachmentField({
     <div className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-baseline justify-between">
         <span className="text-[13px] font-medium text-foreground">{label}</span>
+        {/* Read-only has no budget to report — a slot count and a size cap are
+            both instructions for adding files, and there is no adding here. */}
         <span className="text-[11.5px] text-faint tabular-nums">
-          {count > 0 ? `${count} of ${MAX_ATTACHMENTS_PER_REQUEST}` : `Up to ${formatBytes(MAX_ATTACHMENT_TOTAL_BYTES)} total`}
+          {readOnly
+            ? count > 0
+              ? `${count} file${count === 1 ? "" : "s"}`
+              : ""
+            : count > 0
+              ? `${count} of ${MAX_ATTACHMENTS_PER_REQUEST}`
+              : `Up to ${formatBytes(MAX_ATTACHMENT_TOTAL_BYTES)} total`}
         </span>
       </div>
+
+      {readOnly && saved !== null && count === 0 && (
+        <p className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-surface-subtle/40 px-3 py-3 text-[13px] text-muted">
+          <Paperclip aria-hidden="true" className="h-3.5 w-3.5 text-faint" />
+          No attachments
+        </p>
+      )}
 
       {/*
         A real <label> around a real <input type="file">. The input is visually
         hidden but not `display:none`, so it keeps its place in the tab order and
         carries the focus ring out to the target through `peer-focus-visible`.
         No key handlers, no role, no tabindex — the platform already does this.
+
+        Omitted entirely in read-only mode rather than disabled: a greyed drop
+        target still says "files go here", which is the wrong promise to make on
+        a request nobody on the team is going to add files to.
       */}
-      <label
-        onDragEnter={(e) => {
-          e.preventDefault()
-          if (locked) return
-          dragDepth.current += 1
-          setDragging(true)
-        }}
-        onDragOver={(e) => e.preventDefault()}
-        onDragLeave={(e) => {
-          e.preventDefault()
-          dragDepth.current -= 1
-          if (dragDepth.current <= 0) {
-            dragDepth.current = 0
-            setDragging(false)
-          }
-        }}
-        onDrop={handleDrop}
-        className={cn(
-          "group relative flex cursor-pointer flex-col items-center justify-center gap-1.5",
-          "rounded-lg border border-dashed border-border bg-surface-subtle/40 px-4 py-5 text-center",
-          // Only colour and shadow move — no layout property is animated, so the
-          // target cannot shift under a pointer that is mid-drag over it.
-          "transition-[background-color,border-color,box-shadow] duration-[150ms] ease-[var(--ease-out-quart)]",
-          "hover:border-border-strong hover:bg-surface-subtle",
-          // The input is a child, not a sibling, so the ring is pulled out to
-          // the target with `:has()` rather than Tailwind's `peer-`.
-          "has-[input:focus-visible]:border-focus-ring has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-focus-ring",
-          dragging && "border-primary bg-primary/5 shadow-sm",
-          locked && "cursor-not-allowed opacity-60 hover:border-border hover:bg-surface-subtle/40"
-        )}
-      >
-        <input
-          type="file"
-          multiple
-          accept={ATTACHMENT_ACCEPT}
-          disabled={locked}
-          onChange={handlePicked}
-          className="sr-only"
-        />
-        <Upload
-          aria-hidden="true"
+      {!readOnly && (
+        <label
+          onDragEnter={(e) => {
+            e.preventDefault()
+            if (locked) return
+            dragDepth.current += 1
+            setDragging(true)
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={(e) => {
+            e.preventDefault()
+            dragDepth.current -= 1
+            if (dragDepth.current <= 0) {
+              dragDepth.current = 0
+              setDragging(false)
+            }
+          }}
+          onDrop={handleDrop}
           className={cn(
-            "h-4 w-4 text-faint",
-            "transition-transform duration-[150ms] ease-[var(--ease-out-quart)]",
-            "group-hover:text-muted motion-safe:group-hover:-translate-y-0.5",
-            dragging && "text-primary motion-safe:-translate-y-0.5"
+            "group relative flex cursor-pointer flex-col items-center justify-center gap-1.5",
+            "rounded-lg border border-dashed border-border bg-surface-subtle/40 px-4 py-5 text-center",
+            // Only colour and shadow move — no layout property is animated, so the
+            // target cannot shift under a pointer that is mid-drag over it.
+            "transition-[background-color,border-color,box-shadow] duration-[150ms] ease-[var(--ease-out-quart)]",
+            "hover:border-border-strong hover:bg-surface-subtle",
+            // The input is a child, not a sibling, so the ring is pulled out to
+            // the target with `:has()` rather than Tailwind's `peer-`.
+            "has-[input:focus-visible]:border-focus-ring has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-focus-ring",
+            dragging && "border-primary bg-primary/5 shadow-sm",
+            locked && "cursor-not-allowed opacity-60 hover:border-border hover:bg-surface-subtle/40"
           )}
-        />
-        <span className="text-[13px] text-foreground">
-          {full ? (
-            `All ${MAX_ATTACHMENTS_PER_REQUEST} slots are full`
-          ) : dragging ? (
-            "Drop to attach"
-          ) : (
-            <>
-              <span className="font-medium underline-offset-2 group-hover:underline">Choose a file</span>
-              <span className="text-muted"> or drop one here</span>
-            </>
-          )}
-        </span>
-        <span className="text-[11.5px] text-faint">
-          {ALLOWED_TYPES_LABEL} · {formatBytes(MAX_ATTACHMENT_TOTAL_BYTES)} total
-        </span>
-      </label>
+        >
+          <input
+            type="file"
+            multiple
+            accept={ATTACHMENT_ACCEPT}
+            disabled={locked}
+            onChange={handlePicked}
+            className="sr-only"
+          />
+          <Upload
+            aria-hidden="true"
+            className={cn(
+              "h-4 w-4 text-faint",
+              "transition-transform duration-[150ms] ease-[var(--ease-out-quart)]",
+              "group-hover:text-muted motion-safe:group-hover:-translate-y-0.5",
+              dragging && "text-primary motion-safe:-translate-y-0.5"
+            )}
+          />
+          <span className="text-[13px] text-foreground">
+            {full ? (
+              `All ${MAX_ATTACHMENTS_PER_REQUEST} slots are full`
+            ) : dragging ? (
+              "Drop to attach"
+            ) : (
+              <>
+                <span className="font-medium underline-offset-2 group-hover:underline">Choose a file</span>
+                <span className="text-muted"> or drop one here</span>
+              </>
+            )}
+          </span>
+          <span className="text-[11.5px] text-faint">
+            {ALLOWED_TYPES_LABEL} · {formatBytes(MAX_ATTACHMENT_TOTAL_BYTES)} total
+          </span>
+        </label>
+      )}
 
       {/* Rejections sit under the target, where the file would have appeared. */}
       {rejections.length > 0 && (
@@ -373,7 +394,7 @@ export function AttachmentField({
             </li>
           )}
 
-          {(saved ?? []).map((attachment) => (
+          {(saved ?? []).map((attachment, index) => (
             <AttachmentCard
               key={attachment.id}
               name={attachment.file_name}
@@ -383,9 +404,9 @@ export function AttachmentField({
                 attachment.uploaded_by_name ?? "Added with the request",
                 format(new Date(attachment.created_at), "MMM d")
               ].join(" · ")}
-              href={attachment.signed_url}
+              onOpen={() => setViewing(index)}
               busy={removing === attachment.id}
-              onRemove={() => void removeSaved(attachment)}
+              onRemove={readOnly ? undefined : () => void removeSaved(attachment)}
             />
           ))}
 
@@ -396,7 +417,7 @@ export function AttachmentField({
               mime={file.type}
               size={file.size}
               meta="Uploads when you submit"
-              onRemove={() => removeStaged(index)}
+              onRemove={readOnly ? undefined : () => removeStaged(index)}
             />
           ))}
 
@@ -422,6 +443,21 @@ export function AttachmentField({
       <span aria-live="polite" className="sr-only">
         {status}
       </span>
+
+      {/*
+        Opens over the page instead of navigating away. Retry re-reads the list,
+        which is the only way to get a fresh signed URL — they are minted per
+        read and expire an hour later, so a panel left open over lunch is holding
+        links that no longer resolve.
+      */}
+      <AttachmentViewer
+        open={viewing !== null}
+        items={saved ?? []}
+        index={viewing ?? 0}
+        onIndexChange={setViewing}
+        onClose={() => setViewing(null)}
+        onRetry={live ? load : undefined}
+      />
     </div>
   )
 }
@@ -429,14 +465,19 @@ export function AttachmentField({
 /**
  * One attachment, in the §19.3 shape: what it is, then what it is made of, then
  * the two actions. Open is the title itself when there is somewhere to go —
- * making the name the link means the biggest target is the one people reach for.
+ * making the name the trigger means the biggest target is the one people reach
+ * for.
+ *
+ * It is a `<button>`, not an `<a target="_blank">`: opening the file no longer
+ * leaves the page, so the control should not claim to navigate. Anyone who does
+ * want the file on disk gets the Download action inside the viewer.
  */
 function AttachmentCard({
   name,
   mime,
   size,
   meta,
-  href,
+  onOpen,
   uploading,
   progress,
   busy,
@@ -446,14 +487,15 @@ function AttachmentCard({
   mime: string
   size: number
   meta: string
-  href?: string | null
+  /** Absent = nothing to open yet (a staged or in-flight file). */
+  onOpen?: () => void
   uploading?: boolean
   /** 0-1 while uploading. */
   progress?: number
   busy?: boolean
   onRemove?: () => void
 }) {
-  const Icon = KIND_ICON[attachmentKind(mime)]
+  const Icon = ATTACHMENT_KIND_ICON[attachmentKind(mime)]
 
   return (
     <li
@@ -474,20 +516,20 @@ function AttachmentCard({
       </span>
 
       <div className="min-w-0 flex-1">
-        {href ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-haspopup="dialog"
             className={cn(
-              "block truncate text-[13px] font-medium text-foreground",
+              "block max-w-full truncate text-left text-[13px] font-medium text-foreground",
               "rounded-sm underline-offset-2 hover:underline",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             )}
-            title={name}
+            title={`Open ${name}`}
           >
             {name}
-          </a>
+          </button>
         ) : (
           <span className="block truncate text-[13px] font-medium text-foreground" title={name}>
             {name}

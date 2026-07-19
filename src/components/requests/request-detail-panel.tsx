@@ -234,7 +234,7 @@ function EditableField({
             // gap-2, not gap-1: at 4px the chevron sat against the pill's
             // rounded edge and read as part of the badge rather than as a
             // control beside it.
-            "group/edit -mx-2 -my-1 inline-flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-left",
+            "group/edit -mx-2 -my-1 inline-flex max-w-full items-center gap-3 rounded-md px-2 py-1 text-left",
             "transition-colors duration-[120ms] ease-out hover:bg-surface-subtle",
             "aria-[expanded=true]:bg-surface-subtle",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
@@ -534,9 +534,18 @@ export function RequestDetailPanel({
             a fresh mount when the footer arrows step to another request — the
             field loads its own list and must not show the previous one while it
             re-fetches.
+
+            Read-only when the request came in through a public link: those are
+            filed by someone outside the team and are not edited in place
+            afterwards, so this panel views the files that arrived with the
+            submission rather than adding to them.
           */}
           <div className="border-t border-border px-5 py-5">
-            <AttachmentField key={record.id} requestId={record.id} />
+            <AttachmentField
+              key={record.id}
+              requestId={record.id}
+              readOnly={record.public_request_link_id !== null}
+            />
           </div>
 
           <div ref={activityRef} className="border-t border-border px-5 py-5">
