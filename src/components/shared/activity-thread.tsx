@@ -40,7 +40,11 @@ export function ActivityThread({ entityType, entityId }: ActivityThreadProps) {
 
   return (
     <div>
-      <p className="text-[11.5px] font-semibold uppercase tracking-wider text-faint mb-3">
+      {/*
+        Sentence case, not caps (design system §6.3), and `--text-muted` rather
+        than `--text-faint` — faint at this size falls under the 4.5:1 AA floor.
+      */}
+      <p className="text-[12px] font-semibold text-muted mb-3">
         Activity
       </p>
 
@@ -49,7 +53,7 @@ export function ActivityThread({ entityType, entityId }: ActivityThreadProps) {
           <Loader2 className="h-3 w-3 animate-spin" /> Loading comments…
         </div>
       ) : comments.length === 0 ? (
-        <p className="text-[12px] text-faint mb-3">No activity yet. Start the conversation.</p>
+        <p className="text-[12px] text-muted mb-3">No activity yet. Start the conversation.</p>
       ) : (
         <ul className="space-y-3 mb-3">
           {comments.map((c) => (

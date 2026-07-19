@@ -196,16 +196,29 @@ export function Combobox({
                       isSelected ? "text-foreground" : "text-muted hover:text-foreground"
                     )}
                   >
-                    {/* Checkbox */}
+                    {/*
+                      Presentational only: the row itself is the control, so a
+                      nested input would be a second tab stop for the same
+                      action. Sized and coloured to match the `Checkbox`
+                      primitive so the two read as one component.
+                    */}
                     <span
+                      aria-hidden="true"
                       className={cn(
-                        "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                        "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border",
+                        "transition-[background-color,border-color] duration-[120ms] ease-out",
                         isSelected
-                          ? "border-primary bg-primary text-white"
+                          ? "border-primary bg-primary text-primary-foreground"
                           : "border-border-strong bg-canvas"
                       )}
                     >
-                      {isSelected && <Check className="h-2.5 w-2.5" aria-hidden="true" />}
+                      <Check
+                        className={cn(
+                          "h-3 w-3 transition-[opacity,transform] duration-[120ms] ease-out",
+                          isSelected ? "scale-100 opacity-100" : "scale-75 opacity-0"
+                        )}
+                        strokeWidth={3}
+                      />
                     </span>
                     <span className="flex-1 min-w-0">
                       <span className="block font-medium truncate">{option.label}</span>

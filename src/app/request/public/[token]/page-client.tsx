@@ -2,13 +2,16 @@
 
 import { useState } from "react"
 import { format } from "date-fns"
-import { Inbox, CheckCircle2, ExternalLink } from "lucide-react"
+import { CheckCircle2, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Logo } from "@/components/ui/logo"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Combobox } from "@/components/ui/combobox"
 import { DatePicker } from "@/components/ui/date-picker"
 import { FormField } from "@/components/ui/form-field"
+import { AttachmentField } from "@/components/requests/attachment-field"
+import { uploadStagedAttachments } from "@/lib/attachments/upload"
 import { PRIORITIES, REQUESTING_UNITS } from "@/constants"
 import { submitPublicRequest } from "@/server/actions/public-requests"
 import type { PublicRequestInput } from "@/lib/validators"
@@ -34,6 +37,13 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [unitCustom, setUnitCustom] = useState(false)
+  /**
+   * Held, not uploaded. There is no request to attach them to until the form is
+   * submitted, and — more to the point — nothing should reach the bucket before
+   * the server has seen this token and agreed to it.
+   */
+  const [attachments, setAttachments] = useState<File[]>([])
+  const [attachmentWarning, setAttachmentWarning] = useState<string | null>(null)
   const dateFilled = format(new Date(), "MMM d, yyyy")
 
   async function handleSubmit(e: React.FormEvent) {
@@ -51,13 +61,35 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
     setError(null)
 
     const result = await submitPublicRequest(token, form)
-    setLoading(false)
 
     if (result.error) {
+      setLoading(false)
       setError(result.error)
       return
     }
 
+    /*
+      Files go up after the request exists — each one is authorised against this
+      same token server-side before a single byte is accepted. A failure here is
+      not a failed submission: the request is filed and tracked either way, so it
+      is reported on the confirmation screen rather than sending someone back to
+      a form they have already completed.
+    */
+    if (attachments.length > 0 && result.requestId) {
+      const failures = await uploadStagedAttachments(attachments, {
+        requestId: result.requestId,
+        token
+      })
+      if (failures.length > 0) {
+        setAttachmentWarning(
+          failures.length === 1
+            ? failures[0]
+            : `${failures.length} of your files couldn't be attached. Mention them when the team follows up.`
+        )
+      }
+    }
+
+    setLoading(false)
     setTrackingId(result.trackingId ?? null)
     setSubmitted(true)
   }
@@ -79,6 +111,20 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
               <span className="text-[12px] text-faint">Tracking ID:</span>
               <span className="font-mono text-[15px] font-bold tracking-wide text-foreground">{trackingId}</span>
             </div>
+          )}
+
+          {/*
+            The request landed; only the files didn't. Said as a warning rather
+            than an error, and after the tracking ID, so the thing that worked is
+            read first.
+          */}
+          {attachmentWarning && (
+            <p
+              role="status"
+              className="mt-4 rounded-lg border border-warning/30 bg-warning-soft/30 px-4 py-2.5 text-left text-[12.5px] leading-snug text-warning"
+            >
+              {attachmentWarning}
+            </p>
           )}
 
           {trackingId && (
@@ -105,9 +151,12 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
     <div className="flex min-h-dvh items-center justify-center bg-gradient-to-b from-surface to-canvas p-4">
       <div className="w-full max-w-2xl">
         <div className="mb-6 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            <Inbox className="h-6 w-6 text-primary" />
-          </div>
+          {/*
+            This is the only CCI-branded surface an outsider sees, so it carries
+            the real mark rather than a generic inbox glyph. `Logo` picks the
+            light or dark asset from the resolved theme.
+          */}
+          <Logo className="mx-auto h-9" />
           <h1 className="mt-4 text-2xl font-semibold tracking-tight text-foreground">
             Media Request
           </h1>
@@ -198,11 +247,11 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
               <FormField label="Date filled">
                 <Input value={dateFilled} readOnly className="text-muted" tabIndex={-1} />
               </FormField>
-              <FormField label="Deadline" helper="When do you need this by?">
+              <FormField label="Due date" helper="When do you need this by?">
                 <DatePicker
                   value={form.deadline}
                   onChange={(v) => setForm({ ...form, deadline: v })}
-                  placeholder="Select deadline"
+                  placeholder="Select due date"
                 />
               </FormField>
             </div>
@@ -222,6 +271,12 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
                 rows={2}
               />
             </FormField>
+            <AttachmentField
+              files={attachments}
+              onFilesChange={setAttachments}
+              disabled={loading}
+              label="Attachments"
+            />
           </div>
 
           <div className="mt-6 flex items-center justify-between border-t border-border pt-4">

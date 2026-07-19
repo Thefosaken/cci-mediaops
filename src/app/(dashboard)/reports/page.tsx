@@ -95,7 +95,7 @@ export default async function ReportsPage() {
           <KpiCard
             label="Pending requests"
             value={pendingReqsRes.count ?? 0}
-            href="/requests?status=submitted"
+            href="/requests?v=triage"
             Icon={Inbox}
             tone={(pendingReqsRes.count ?? 0) > 0 ? "warning" : "neutral"}
             trend={{ value: newReqsLast2w, label: "new (2w)", up: reqTrendUp }}

@@ -17,6 +17,7 @@ import { Button, IconButton } from "@/components/ui/button"
 import { Input, Textarea } from "@/components/ui/input"
 import { Modal } from "@/components/ui/modal"
 import { Select } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -490,11 +491,11 @@ function AssignModal({
             options={[{ value: "", label: "Pick person…" }, ...users.map((u) => ({ value: u.id, label: u.full_name ?? u.email ?? "—" }))]}
             searchable={users.length > 8} />
         </FormField>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={checkOutNow} onChange={(e) => setCheckOutNow(e.target.checked)}
-            className="h-4 w-4 rounded border-border-strong text-primary focus:ring-focus-ring/20" />
-          <span className="text-[13px] text-foreground">Check out immediately</span>
-        </label>
+        <Checkbox
+          label="Check out immediately"
+          checked={checkOutNow}
+          onChange={(e) => setCheckOutNow(e.target.checked)}
+        />
       </div>
     </Modal>
   )

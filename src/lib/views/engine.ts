@@ -73,10 +73,21 @@ export interface ViewResult<T> {
   total: number
 }
 
+export interface ApplyViewOptions {
+  /**
+   * Keep groups that ended up with no records, for fields with a fixed option
+   * set. The board needs this: a status column with zero requests still has to
+   * render, or there is nowhere to drop the first card. The table does not —
+   * empty section headers there are just noise.
+   */
+  includeEmptyGroups?: boolean
+}
+
 export function applyView<T>(
   records: T[],
   fields: FieldDef<T>[],
-  config: ViewConfig
+  config: ViewConfig,
+  options: ApplyViewOptions = {}
 ): ViewResult<T> {
   let list = records
 
@@ -126,7 +137,9 @@ export function applyView<T>(
       // Fixed option sets keep their declared order so status columns read as a
       // pipeline rather than shuffling as data changes.
       const ordered = field.options
-        ? field.options.map((o) => o.value).filter((v) => buckets.has(v))
+        ? field.options
+            .map((o) => o.value)
+            .filter((v) => options.includeEmptyGroups || buckets.has(v))
         : [...buckets.keys()].sort((a, b) =>
             (field.groupLabel?.(a) ?? a).localeCompare(field.groupLabel?.(b) ?? b)
           )

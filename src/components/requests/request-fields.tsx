@@ -33,6 +33,32 @@ function requesterEmail(record: RequestRow): string | null {
   return record.requester?.email || record.requester_contact || null
 }
 
+/**
+ * The distinct people assigned to a request's tasks.
+ *
+ * A request has no assignee of its own — it is routed to sub-teams, and the
+ * individuals doing the work are the assignees on the tasks it spawned. One
+ * request can therefore have several, and a request nobody has picked up yet
+ * has none.
+ */
+function assigneesOf(record: RequestRow): { id: string; name: string; email: string | null }[] {
+  const seen = new Map<string, { id: string; name: string; email: string | null }>()
+  for (const task of record.tasks ?? []) {
+    // Supabase types single-FK joins as arrays and the runtime shape varies by
+    // query. Accepting both beats silently showing nobody as assigned.
+    const joined = task.assigned_user as
+      | { id: string; full_name: string | null; email: string | null }
+      | { id: string; full_name: string | null; email: string | null }[]
+      | null
+    const user = Array.isArray(joined) ? joined[0] : joined
+    if (!user?.id) continue
+    const name = user.full_name?.trim() || user.email?.trim()
+    if (!name) continue
+    if (!seen.has(user.id)) seen.set(user.id, { id: user.id, name, email: user.email })
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
 function text(value: string | null | undefined): FieldValue {
   const trimmed = value?.trim()
   return trimmed ? { kind: "text", text: trimmed } : { kind: "empty" }
@@ -54,8 +80,16 @@ function discover(records: RequestRow[], pick: (r: RequestRow) => string | null)
  * Sub-teams need the campus roster to turn stored ids into names, so the
  * catalogue is built rather than declared as a module constant.
  */
-export function buildRequestFields(subTeams: SubTeamLite[]): FieldDef<RequestRow>[] {
+export function buildRequestFields(
+  subTeams: SubTeamLite[],
+  users: { id: string; full_name: string | null; email: string | null }[] = []
+): FieldDef<RequestRow>[] {
   const subTeamLabels = new Map<string, string>(subTeams.map((t) => [t.id, t.name]))
+  // Assignee group keys are user ids; without this a group header would read
+  // as a raw UUID.
+  const userLabels = new Map<string, string>(
+    users.map((u) => [u.id, u.full_name?.trim() || u.email?.trim() || "Unknown user"])
+  )
 
   return [
     {
@@ -103,15 +137,20 @@ export function buildRequestFields(subTeams: SubTeamLite[]): FieldDef<RequestRow
           : { kind: "empty" },
       groupKey: (r) => r.priority || null,
       groupLabel: (key) => PRIORITY_LABELS.get(key) ?? key,
+      // Unknown priorities return null so the engine sinks them to the bottom,
+      // matching how every other empty value behaves.
       sortValue: (r) => {
         const index = PRIORITY_ORDER.indexOf(r.priority)
-        return index === -1 ? -1 : index
+        return index === -1 ? null : index
       },
       options: PRIORITIES.map((p) => ({ value: p.value, label: p.label })),
       groupable: true,
       sortable: true,
       filterable: true,
-      width: "120px"
+      // Wide enough for "Urgent" plus its severity dot without the pill ever
+      // needing to ellipsise — a truncated status token is unreadable, and the
+      // table scrolls, so there is nothing to gain by squeezing it.
+      width: "140px"
     },
     {
       id: "requester",
@@ -150,6 +189,41 @@ export function buildRequestFields(subTeams: SubTeamLite[]): FieldDef<RequestRow
       width: "170px"
     },
     {
+      id: "assignees",
+      label: "Assigned to",
+      type: "multi",
+      icon: "UserCheck",
+      value: (r) => {
+        const people = assigneesOf(r)
+        if (people.length === 0) return { kind: "empty" }
+        // A single assignee renders as a person chip with an avatar — the
+        // common case, and it reads better than a one-item pill list.
+        if (people.length === 1) {
+          return { kind: "person", name: people[0].name, email: people[0].email }
+        }
+        return { kind: "multi", items: people.map((p) => ({ value: p.id, label: p.name })) }
+      },
+      // Multi-value: a request worked by two people appears under each of them.
+      groupKey: (r) => assigneesOf(r).map((p) => p.id),
+      groupLabel: (key) => userLabels.get(key) ?? "Unknown user",
+      sortValue: (r) => assigneesOf(r)[0]?.name.toLowerCase() ?? null,
+      dynamicOptions: (records) => {
+        const seen = new Map<string, string>()
+        for (const record of records) {
+          for (const person of assigneesOf(record)) {
+            if (!seen.has(person.id)) seen.set(person.id, person.name)
+          }
+        }
+        return [...seen.entries()]
+          .map(([value, label]) => ({ value, label }))
+          .sort((a, b) => a.label.localeCompare(b.label))
+      },
+      groupable: true,
+      sortable: true,
+      filterable: true,
+      width: "190px"
+    },
+    {
       id: "sub_teams",
       label: "Sub-teams",
       type: "multi",
@@ -175,7 +249,7 @@ export function buildRequestFields(subTeams: SubTeamLite[]): FieldDef<RequestRow
     },
     {
       id: "deadline",
-      label: "Deadline",
+      label: "Due date",
       type: "date",
       icon: "CalendarClock",
       value: (r) => (r.deadline ? { kind: "date", iso: r.deadline } : { kind: "empty" }),

@@ -1,6 +1,7 @@
 import { getRequestByTrackingId } from "@/server/actions/public-requests"
 import { Search, Inbox, CheckCircle2, Clock, AlertTriangle } from "lucide-react"
 import { format } from "date-fns"
+import { Logo } from "@/components/ui/logo"
 
 export const dynamic = "force-dynamic"
 
@@ -50,6 +51,8 @@ export default async function TrackingPage({
   return (
     <div className="flex min-h-dvh items-center justify-center bg-gradient-to-b from-surface to-canvas p-4">
       <div className="w-full max-w-lg">
+        {/* Public surface — carries the CCI mark, same as the request form. */}
+        <Logo className="mx-auto mb-6 h-8" />
         <div className="rounded-2xl border border-border bg-surface p-8 shadow-lg">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-subtle">

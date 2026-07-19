@@ -10,12 +10,13 @@ import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/lib/toast/toast-context"
 import { useUrlState } from "@/lib/hooks/use-url-state"
 import { cn } from "@/lib/utils/cn"
-import { ROLE_LABELS } from "@/constants"
+import { ROLE_LABELS, PRIORITIES } from "@/constants"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Button, IconButton } from "@/components/ui/button"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -86,6 +87,18 @@ export function SubTeamsPageClient({
   const [showJoinModal, setShowJoinModal] = useState(false)
 
   const active = subTeams.find((s) => s.id === activeId) ?? null
+
+  /**
+   * Whether this page needs any "choose a team" chrome at all.
+   *
+   * Derived from what the user can actually see, not from their role: an admin
+   * on a single-team campus has nothing to choose between either, and a member
+   * of three teams needs the switcher regardless of rank. With one team, the
+   * page header, the rail and the team's own heading were three statements of
+   * the same fact above ~900px of empty column — so with one team the team
+   * simply *is* the page. The navbar breadcrumb already says "Sub-Teams".
+   */
+  const showTeamSwitcher = subTeams.length > 1
 
   const teamRequests = useMemo(() => {
     return requestJoins
@@ -187,17 +200,25 @@ export function SubTeamsPageClient({
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
-      <PageHeader
-        title="Sub-teams"
-        description="Members, workload and standing of each media team"
-        icon={<Users />}
-      />
+      {showTeamSwitcher && (
+        <PageHeader
+          title="Sub-teams"
+          description="Members, workload and standing of each media team"
+          icon={<Users />}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1">
         {/* ── Team rail ──────────────────────────────────────────
-            Slightly wider than before so a team's name and its load fit on
-            one line each — the previous 260px truncated both. */}
-        <aside className="hidden w-[268px] shrink-0 overflow-y-auto border-r border-border lg:block">
+            Only earns its 268px when there is more than one team to switch
+            between; otherwise it is a tall empty column beside a page that
+            already names its subject. */}
+        <aside
+          className={cn(
+            "w-[268px] shrink-0 overflow-y-auto border-r border-border",
+            showTeamSwitcher ? "hidden lg:block" : "hidden"
+          )}
+        >
           <div className="px-3 py-3">
             <p className="mb-2 px-1.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-faint">
               Teams
@@ -288,7 +309,14 @@ export function SubTeamsPageClient({
               />
             </div>
           ) : (
-            <div className="mx-auto max-w-[900px] px-5 py-6 sm:px-6">
+            /*
+              Same gutter as Run sheets — `px-5 py-6 sm:px-6`, no centering
+              wrapper. Capping the column and centring it bought symmetric
+              margins at the cost of a narrow strip of content in a wide
+              viewport; letting it run full-bleed puts the space back into the
+              content, which is what the page is for.
+            */
+            <div className="w-full px-5 py-6 sm:px-6">
               {/* ── Identity ──────────────────────────────────────
                   Plain heading rather than a card. It is the subject of the
                   page, not one panel among several, and boxing it flattened
@@ -296,7 +324,18 @@ export function SubTeamsPageClient({
               <header className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2.5">
-                    <h2 className="truncate text-[22px] font-semibold leading-tight tracking-[-0.02em] text-foreground">
+                    {/*
+                      Without the switcher this heading is the page title, so it
+                      takes the §6.2 `h1` size (30px). With the switcher there is
+                      a PageHeader above it and it steps down to `h2` (24px) to
+                      sit under it rather than compete.
+                    */}
+                    <h2
+                      className={cn(
+                        "truncate font-semibold leading-tight tracking-[-0.02em] text-foreground",
+                        showTeamSwitcher ? "text-[24px]" : "text-[30px]"
+                      )}
+                    >
                       {active.name}
                     </h2>
                     {isMember && (
@@ -533,7 +572,8 @@ export function SubTeamsPageClient({
                       ? { label: "Add", onClick: () => setShowAddTask(true) }
                       : undefined
                   }
-                  empty={active.tasks.length === 0 ? "Nothing assigned yet" : undefined}
+                  empty={active.tasks.length === 0 ? "No tasks yet" : undefined}
+                  emptyHint="Work assigned to this team will show up here."
                 >
                   {active.tasks.slice(0, 4).map((task) => (
                     <PanelRow key={task.id} label={task.title}>
@@ -549,7 +589,8 @@ export function SubTeamsPageClient({
                   title="Requests"
                   count={teamRequests.length}
                   countLabel="routed"
-                  empty={teamRequests.length === 0 ? "None routed here" : undefined}
+                  empty={teamRequests.length === 0 ? "No requests routed here" : undefined}
+                  emptyHint="Requests naming this team appear here automatically."
                 >
                   {teamRequests.slice(0, 4).map((r) => (
                     <PanelRow key={r.id} label={r.title} href={`/requests?id=${r.id}`}>
@@ -565,7 +606,8 @@ export function SubTeamsPageClient({
                   title="Equipment"
                   count={teamEquipment.length}
                   countLabel="items"
-                  empty={teamEquipment.length === 0 ? "None assigned" : undefined}
+                  empty={teamEquipment.length === 0 ? "No equipment assigned" : undefined}
+                  emptyHint="Gear owned by this team is tracked here."
                 >
                   {/* Condition is the only thing worth surfacing here — a list of
                       item names would just duplicate the equipment page. */}
@@ -618,6 +660,7 @@ export function SubTeamsPageClient({
           onClose={() => setShowAddTask(false)}
           subTeamId={active.id}
           members={active.sub_team_memberships.map((m) => m.users).filter((u): u is UserLite => !!u)}
+          requests={teamRequests.filter((r) => !["completed", "rejected", "cancelled"].includes(r.status))}
           onCreated={() => { setShowAddTask(false); router.refresh() }}
         />
       )}
@@ -746,22 +789,73 @@ function AddMemberModal({
   )
 }
 
+type RoutedRequest = {
+  id: string
+  title: string
+  status: string
+  priority: string
+  deadline: string | null
+  requesting_unit: string | null
+}
+
+/**
+ * Two ways to create a task, because there are two ways work arrives.
+ *
+ * Most work comes from a request already routed to this team — that task should
+ * stay joined to its request (`tasks.request_id`), which is what makes the
+ * request's "Assigned to" resolve and lets the requester see progress. The rest
+ * is work the team sets itself, which has no request to point at.
+ *
+ * Picking a request pre-fills title, priority and due date from it; every field
+ * stays editable, since the request says what is wanted and the task says what
+ * this team will actually do about it.
+ */
 function AddTaskModal({
-  open, onClose, subTeamId, members, onCreated,
+  open, onClose, subTeamId, members, requests, onCreated,
 }: {
   open: boolean
   onClose: () => void
   subTeamId: string
   members: UserLite[]
+  /** Requests already routed to this sub-team. */
+  requests: RoutedRequest[]
   onCreated: () => void
 }) {
   const { success, error: toastError } = useToast()
+  const [source, setSource] = useState<"request" | "new">("request")
+  const [requestId, setRequestId] = useState("")
   const [title, setTitle] = useState("")
   const [assignee, setAssignee] = useState("")
+  const [priority, setPriority] = useState("normal")
+  const [dueDate, setDueDate] = useState("")
   const [saving, setSaving] = useState(false)
+
+  // A team with nothing routed to it has no "from a request" path to offer.
+  const canSourceFromRequest = requests.length > 0
+  const mode = canSourceFromRequest ? source : "new"
+
+  function reset() {
+    setSource("request")
+    setRequestId("")
+    setTitle("")
+    setAssignee("")
+    setPriority("normal")
+    setDueDate("")
+  }
+
+  /** Pre-fill from the request, leaving everything editable. */
+  function pickRequest(id: string) {
+    setRequestId(id)
+    const req = requests.find((r) => r.id === id)
+    if (!req) return
+    setTitle(req.title)
+    setPriority(req.priority || "normal")
+    setDueDate(req.deadline ? req.deadline.slice(0, 10) : "")
+  }
 
   async function go() {
     if (!title.trim()) return
+    if (mode === "request" && !requestId) return
     setSaving(true)
     try {
       const supabase = createClient()
@@ -771,47 +865,127 @@ function AddTaskModal({
       const { error } = await supabase.from("tasks").insert({
         campus_id: campus?.id,
         sub_team_id: subTeamId,
+        // The join back to the request. Without it the request can never show
+        // who is working on it.
+        request_id: mode === "request" ? requestId : null,
         title,
         assigned_user_id: assignee || null,
+        due_date: dueDate || null,
+        priority,
         created_by: profile?.id,
         status: "to_do",
       })
       if (error) throw new Error(error.message)
       success("Task added")
-      setTitle("")
-      setAssignee("")
+      reset()
       onCreated()
     } catch (err) {
       toastError(err instanceof Error ? err.message : "Failed to add task")
     } finally { setSaving(false) }
   }
 
+  function handleClose() {
+    reset()
+    onClose()
+  }
+
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="New task"
-      description="Add a task for this sub-team."
+      description="Turn a routed request into work, or add something this team set itself."
       size="default"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={go} loading={saving} disabled={!title.trim()}>Create</Button>
+          <Button variant="ghost" onClick={handleClose}>Cancel</Button>
+          <Button
+            onClick={go}
+            loading={saving}
+            disabled={!title.trim() || (mode === "request" && !requestId)}
+          >
+            Create
+          </Button>
         </>
       }
     >
-      <div className="space-y-3 py-2">
-        <FormField label="Title" required>
-          <Input value={title} autoFocus onChange={(e) => setTitle(e.target.value)} placeholder="What needs to happen?" />
-        </FormField>
-        <FormField label="Assign to" helper="Optional">
-          <Select
-            value={assignee}
-            onChange={setAssignee}
-            options={[{ value: "", label: "Unassigned" }, ...members.map((m) => ({ value: m.id, label: m.full_name ?? m.email ?? "—" }))]}
-            searchable={members.length > 6}
+      <div className="space-y-4 py-2">
+        {canSourceFromRequest && (
+          <div className="flex rounded-md border border-border bg-surface-subtle p-0.5">
+            {([
+              { value: "request", label: "From a request" },
+              { value: "new", label: "Something else" },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  setSource(opt.value)
+                  if (opt.value === "new") { setRequestId(""); setTitle("") }
+                }}
+                className={cn(
+                  "h-8 flex-1 rounded-[5px] text-[12.5px] font-medium transition-colors duration-100 ease-out",
+                  source === opt.value
+                    ? "bg-surface text-foreground shadow-sm"
+                    : "text-muted hover:text-foreground"
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mode === "request" && (
+          <FormField label="Request" required helper="Routed to this team">
+            <Select
+              value={requestId}
+              onChange={pickRequest}
+              options={[
+                { value: "", label: "Select a request…" },
+                ...requests.map((r) => ({
+                  value: r.id,
+                  label: r.requesting_unit ? `${r.title} — ${r.requesting_unit}` : r.title,
+                })),
+              ]}
+              searchable={requests.length > 6}
+            />
+          </FormField>
+        )}
+
+        <FormField
+          label="Task title"
+          required
+          helper={mode === "request" ? "Pre-filled from the request — edit it to say what this team will do" : undefined}
+        >
+          <Input
+            value={title}
+            autoFocus={mode === "new"}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="What needs to happen?"
           />
         </FormField>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Assign to" helper="Optional">
+            <Select
+              value={assignee}
+              onChange={setAssignee}
+              options={[{ value: "", label: "Unassigned" }, ...members.map((m) => ({ value: m.id, label: m.full_name ?? m.email ?? "—" }))]}
+              searchable={members.length > 6}
+            />
+          </FormField>
+          <FormField label="Priority">
+            <Select
+              value={priority}
+              onChange={setPriority}
+              options={PRIORITIES.map((p) => ({ value: p.value, label: p.label }))}
+            />
+          </FormField>
+          <FormField label="Due date" helper="Optional" className="sm:col-span-2">
+            <DatePicker value={dueDate} onChange={setDueDate} placeholder="Select due date" />
+          </FormField>
+        </div>
       </div>
     </Modal>
   )
@@ -842,6 +1016,7 @@ function Panel({
   countLabel,
   action,
   empty,
+  emptyHint,
   children,
 }: {
   title: string
@@ -849,10 +1024,15 @@ function Panel({
   countLabel: string
   action?: { label: string; onClick: () => void }
   empty?: string
+  /** One short line of guidance shown under `empty` (§18). */
+  emptyHint?: string
   children?: React.ReactNode
 }) {
   return (
-    <section className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
+    // `min-h-[168px]` so the three panels hold a common baseline when they are
+    // empty. Ragged-bottom cards of three different heights were a large part
+    // of what read as unfinished space.
+    <section className="flex min-h-[168px] flex-col overflow-hidden rounded-lg border border-border bg-surface">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
         <div className="flex items-baseline gap-1.5">
           <h3 className="text-[12.5px] font-semibold text-foreground">{title}</h3>
@@ -868,7 +1048,14 @@ function Panel({
       </div>
 
       {empty ? (
-        <p className="px-4 py-6 text-center text-[12px] text-faint">{empty}</p>
+        // §18: an empty state states the situation and says what happens next,
+        // rather than leaving one faint sentence floating in a box.
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 px-4 py-6 text-center">
+          <p className="text-[12.5px] font-medium text-muted">{empty}</p>
+          {emptyHint && (
+            <p className="max-w-[28ch] text-[12px] leading-relaxed text-faint">{emptyHint}</p>
+          )}
+        </div>
       ) : (
         <div className="divide-y divide-border-subtle">{children}</div>
       )}

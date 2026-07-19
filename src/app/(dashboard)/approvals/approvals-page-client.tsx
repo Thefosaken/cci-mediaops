@@ -227,7 +227,7 @@ function ApprovalDetail({
           ) : null}
         </DataItem>
         <DataItem label="Unit">{a.requests?.requesting_unit}</DataItem>
-        <DataItem label="Deadline">
+        <DataItem label="Due date">
           {a.requests?.deadline ? format(new Date(a.requests.deadline), "MMM d, yyyy") : null}
         </DataItem>
         <DataItem label="Submitted">

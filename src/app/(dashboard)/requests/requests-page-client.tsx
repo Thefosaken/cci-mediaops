@@ -3,63 +3,41 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
-import {
-  Inbox, Plus, Search, MessageSquare, MoreHorizontal,
-  CheckCircle2, XCircle, CornerUpLeft, FileText, AlertTriangle, Link2, ExternalLink,
-} from "lucide-react"
+import { Inbox, Plus, Link2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/lib/toast/toast-context"
 import { useUrlState } from "@/lib/hooks/use-url-state"
 import { PRIORITIES, REQUESTING_UNITS } from "@/constants"
-import { cn } from "@/lib/utils/cn"
-type SubTeamLite = { id: string; name: string }
+import { applyView } from "@/lib/views/engine"
+import { useViewState } from "@/lib/views/use-view-state"
+import type { SavedView } from "@/lib/views/types"
+import { ViewBar } from "@/components/views/view-bar"
+import { uploadStagedAttachments } from "@/lib/attachments/upload"
+import { AttachmentField } from "@/components/requests/attachment-field"
+import { buildRequestFields } from "@/components/requests/request-fields"
+import { RequestTable } from "@/components/requests/request-table"
+import { RequestBoard } from "@/components/requests/request-board"
+import { RequestDetailPanel } from "@/components/requests/request-detail-panel"
+import type { RequestRow, SubTeamLite } from "@/components/requests/request-row-types"
 
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar, ToolbarGroup } from "@/components/ui/toolbar"
 import { Button } from "@/components/ui/button"
 import { Input, Textarea } from "@/components/ui/input"
 import { Modal } from "@/components/ui/modal"
-import { SidePanel } from "@/components/ui/side-panel"
 import { Select } from "@/components/ui/select"
 import { Combobox } from "@/components/ui/combobox"
 import { DatePicker } from "@/components/ui/date-picker"
-import { Badge } from "@/components/ui/badge"
-import { StatusBadge } from "@/components/ui/status-badge"
-import { EmptyState } from "@/components/ui/empty-state"
 import { FormField } from "@/components/ui/form-field"
 import { Switch } from "@/components/ui/switch"
-import { DataList, DataItem } from "@/components/ui/data-list"
-import { Avatar } from "@/components/ui/avatar"
-import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ActivityThread } from "@/components/shared/activity-thread"
+import { DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu"
 import {
   updateRequestStatus,
+  updateRequestPriority,
   requestClarification,
   completeRequest,
 } from "@/server/actions/requests"
 
 type PublicLinkLite = { id: string; token: string; label: string }
-
-type RequestRow = {
-  id: string
-  title: string
-  requesting_unit: string | null
-  status: string
-  priority: string
-  deadline: string | null
-  description: string | null
-  desired_output: string | null
-  approval_required: boolean | null
-  created_at: string
-  tracking_id: string | null
-  requester_name: string | null
-  requester_contact: string | null
-  public_request_link_id: string | null
-  request_sub_teams: { sub_team_id: string; sub_teams: { id: string; name: string } | null }[]
-  requester: { full_name: string | null; email: string | null } | null
-  events?: { id: string; title: string; start_time: string } | null
-}
 
 const EMPTY_FORM = {
   title: "",
@@ -73,21 +51,94 @@ const EMPTY_FORM = {
   approvalRequired: false,
 }
 
-const STATUS_FILTERS = [
-  { value: "open", label: "Open" },
-  { value: "submitted", label: "Submitted" },
-  { value: "in_progress", label: "In progress" },
-  { value: "awaiting_approval", label: "Awaiting approval" },
-  { value: "completed", label: "Completed" },
-  { value: "all", label: "All" },
+/** Statuses that mean the request has left the queue. */
+const SETTLED = ["completed", "rejected", "cancelled"]
+
+/**
+ * Built-in views. These replace the old hardcoded status tabs — each one is
+ * just a starting configuration the user is free to edit and re-save.
+ *
+ * Module-level so the reference is stable: it feeds a `useMemo` dep inside
+ * `useViewState`.
+ */
+const SYSTEM_VIEWS: SavedView[] = [
+  {
+    id: "open",
+    name: "Open requests",
+    system: true,
+    config: {
+      layout: "table",
+      filters: [{ fieldId: "status", operator: "is_not", values: SETTLED }],
+      sorts: [{ fieldId: "deadline", direction: "asc" }],
+      groupBy: null,
+      hidden: [],
+      query: "",
+    },
+  },
+  {
+    id: "triage",
+    name: "Awaiting triage",
+    system: true,
+    config: {
+      layout: "table",
+      filters: [
+        { fieldId: "status", operator: "is_any_of", values: ["submitted", "under_review", "clarification_needed"] },
+      ],
+      sorts: [{ fieldId: "created_at", direction: "asc" }],
+      groupBy: null,
+      hidden: [],
+      query: "",
+    },
+  },
+  {
+    id: "pipeline",
+    name: "Pipeline",
+    system: true,
+    config: {
+      layout: "board",
+      filters: [{ fieldId: "status", operator: "is_not", values: ["cancelled"] }],
+      sorts: [{ fieldId: "priority", direction: "desc" }],
+      groupBy: "status",
+      hidden: [],
+      query: "",
+    },
+  },
+  {
+    id: "by-team",
+    name: "By sub-team",
+    system: true,
+    config: {
+      layout: "board",
+      filters: [{ fieldId: "status", operator: "is_not", values: SETTLED }],
+      sorts: [{ fieldId: "deadline", direction: "asc" }],
+      groupBy: "sub_teams",
+      hidden: [],
+      query: "",
+    },
+  },
+  {
+    id: "all",
+    name: "All requests",
+    system: true,
+    config: {
+      layout: "table",
+      filters: [],
+      sorts: [{ fieldId: "created_at", direction: "desc" }],
+      groupBy: null,
+      hidden: [],
+      query: "",
+    },
+  },
 ]
 
 export function RequestsPageClient({
   requests,
   subTeams,
   events,
+  users,
   publicLinks,
   canCreateLinks,
+  defaultUnit,
 }: {
   requests: RequestRow[]
   subTeams: SubTeamLite[]
@@ -95,58 +146,128 @@ export function RequestsPageClient({
   users: { id: string; full_name: string | null; email: string | null }[]
   publicLinks: PublicLinkLite[]
   canCreateLinks: boolean
+  /** The filer's own unit, derived from their sub-team. Null = ask them. */
+  defaultUnit: string | null
 }) {
   const router = useRouter()
-  const { success, error: toastError } = useToast()
+  const { success, error: toastError, warning } = useToast()
   const { get, set, clear } = useUrlState()
 
   const detailId = get("id")
   const showNew = get("new") === "1"
   const showNewLink = get("newLink") === "1"
-  const initialStatus = get("status") ?? "open"
 
-  const [statusFilter, setStatusFilter] = useState(initialStatus)
-  const [query, setQuery] = useState("")
-  const [priorityFilter, setPriorityFilter] = useState<string>("all")
-  const [subTeamFilter, setSubTeamFilter] = useState<string>("all")
+  const fields = useMemo(() => buildRequestFields(subTeams, users), [subTeams, users])
+  const view = useViewState({ scope: "requests", fields, systemViews: SYSTEM_VIEWS })
+
+  const result = useMemo(
+    // The board needs empty columns to exist as drop targets; the table would
+    // only be cluttered by empty section headers.
+    () => applyView(requests, fields, view.config, {
+      includeEmptyGroups: view.config.layout === "board",
+    }),
+    [requests, fields, view.config]
+  )
+  const groupField = useMemo(
+    () => fields.find((f) => f.id === view.config.groupBy) ?? null,
+    [fields, view.config.groupBy]
+  )
 
   const [loading, setLoading] = useState(false)
+  const [clarifyFor, setClarifyFor] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [unitCustom, setUnitCustom] = useState(false)
+  /**
+   * Files chosen before the request exists. They can't be uploaded yet — there
+   * is no id to hang them off — so they're held here and sent once the insert
+   * comes back with one.
+   */
+  const [attachments, setAttachments] = useState<File[]>([])
   const dateFilled = format(new Date(), "MMM d, yyyy")
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (showNew) setForm(EMPTY_FORM) }, [showNew])
+  useEffect(() => { if (showNew) { setForm(EMPTY_FORM); setAttachments([]) } }, [showNew])
 
   const detail = useMemo(() => requests.find((r) => r.id === detailId) ?? null, [requests, detailId])
 
-  const filtered = useMemo(() => {
-    let list = requests
-    if (statusFilter === "open") {
-      list = list.filter((r) =>
-        !["completed", "rejected", "cancelled"].includes(r.status)
-      )
-    } else if (statusFilter !== "all") {
-      list = list.filter((r) => r.status === statusFilter)
+  /**
+   * The panel navigates the *filtered* result set, not the raw list — stepping
+   * from a record should follow the order on screen, not the order in the DB.
+   */
+  const orderedIds = useMemo(
+    () => (result.groups ? result.groups.flatMap((g) => g.records) : result.records).map((r) => r.id),
+    [result]
+  )
+  const detailIndex = detailId ? orderedIds.indexOf(detailId) : -1
+  const detailPosition = detailIndex + 1
+
+  function stepDetail(delta: number) {
+    if (detailIndex === -1) return
+    const next = orderedIds[detailIndex + delta]
+    if (next) set({ id: next })
+  }
+
+  /**
+   * The single write path for the two editable fields, shared by the board's
+   * drag-to-move and the panel's inline dropdowns. Both surfaces hold their own
+   * optimistic state and revert on a throw, so this only needs to fail loudly.
+   */
+  async function writeField(recordId: string, fieldId: string, nextValue: string) {
+    if (fieldId === "status") {
+      const r = await updateRequestStatus(recordId, nextValue)
+      if (r.error) throw new Error(r.error)
+    } else if (fieldId === "priority") {
+      const r = await updateRequestPriority(recordId, nextValue)
+      if (r.error) throw new Error(r.error)
+    } else {
+      throw new Error("That field can't be edited here.")
     }
-    if (priorityFilter !== "all") list = list.filter((r) => r.priority === priorityFilter)
-    if (subTeamFilter !== "all") list = list.filter((r) =>
-      r.request_sub_teams.some((j) => j.sub_team_id === subTeamFilter)
+    router.refresh()
+  }
+
+  const handleMove = writeField
+  const handleChangeField = writeField
+
+  function detailMenuItems(req: RequestRow) {
+    return (
+      <>
+        <DropdownMenuLabel>Move to</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => changeStatus(req.id, "under_review", "under review")}>
+          Under review
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => changeStatus(req.id, "accepted", "accepted")}>
+          Accept
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => changeStatus(req.id, "in_progress", "in progress")}>
+          Start working
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => changeStatus(req.id, "awaiting_approval", "awaiting approval")}>
+          Send for approval
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => handleComplete(req.id)}>
+          Mark complete
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setClarifyFor(req.id)}>
+          Ask for clarification
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => changeStatus(req.id, "rejected", "rejected")} variant="danger">
+          Reject
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => changeStatus(req.id, "cancelled", "cancelled")} variant="danger">
+          Cancel
+        </DropdownMenuItem>
+      </>
     )
-    if (query.trim()) {
-      const q = query.toLowerCase()
-      list = list.filter((r) =>
-        r.title.toLowerCase().includes(q) ||
-        (r.requesting_unit ?? "").toLowerCase().includes(q) ||
-        (r.description ?? "").toLowerCase().includes(q)
-      )
-    }
-    return list
-  }, [requests, statusFilter, priorityFilter, subTeamFilter, query])
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.title.trim() || !form.requestingUnit.trim() || form.subTeamIds.length === 0) {
+    // The derived unit wins when we have one — the form field isn't rendered
+    // in that case, so `form.requestingUnit` would be empty.
+    const unit = defaultUnit ?? form.requestingUnit
+    if (!form.title.trim() || !unit.trim() || form.subTeamIds.length === 0) {
       toastError("Add a title, requesting unit, and at least one sub-team.")
       return
     }
@@ -165,7 +286,7 @@ export function RequestsPageClient({
           campus_id: campus.id,
           event_id: form.eventId || null,
           title: form.title,
-          requesting_unit: form.requestingUnit,
+          requesting_unit: unit,
           requester_id: profile?.id,
           description: form.description || null,
           desired_output: form.desiredOutput || null,
@@ -176,10 +297,32 @@ export function RequestsPageClient({
         }).select().single()
       if (error) throw new Error(error.message)
       if (request && form.subTeamIds.length > 0) {
-        await supabase.from("request_sub_teams").insert(
+        // This error was previously discarded, which is why a missing RLS
+        // policy on `request_sub_teams` looked like "the form does nothing":
+        // the request row saved, the routing silently did not.
+        const { error: routingError } = await supabase.from("request_sub_teams").insert(
           form.subTeamIds.map((st) => ({ request_id: request.id, sub_team_id: st }))
         )
+        if (routingError) throw new Error(`Request saved, but routing to sub-teams failed: ${routingError.message}`)
       }
+
+      /*
+        Attachments come after the insert, and their failure is reported
+        separately. The request is already saved by this point — telling someone
+        their submission failed because one PDF didn't upload would be a lie, and
+        would tempt them into filing it a second time.
+      */
+      if (request && attachments.length > 0) {
+        const failures = await uploadStagedAttachments(attachments, { requestId: request.id })
+        if (failures.length > 0) {
+          warning(
+            failures.length === 1
+              ? failures[0]
+              : `${failures.length} files couldn't be attached. Add them from the request.`
+          )
+        }
+      }
+
       clear("new")
       success("Request submitted", { label: "Open", onClick: () => set({ id: request!.id }) })
       router.refresh()
@@ -207,17 +350,17 @@ export function RequestsPageClient({
     else { success("Clarification requested"); router.refresh() }
   }
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { open: 0, submitted: 0, in_progress: 0, awaiting_approval: 0, completed: 0, all: requests.length }
-    requests.forEach((r) => {
-      if (!["completed", "rejected", "cancelled"].includes(r.status)) c.open++
-      c[r.status] = (c[r.status] ?? 0) + 1
-    })
-    return c
-  }, [requests])
-
   return (
-    <div className="flex flex-col">
+    <>
+    {/*
+      The detail panel is a sibling of the ENTIRE page column — header, view
+      bar and list all live to its left — so it runs the full height of the
+      workspace, starting directly under the top bar. That is why the page is
+      pinned to the viewport here (shell root is `h-dvh`, navbar is `h-14`)
+      and scrolling moves inside the columns rather than the page.
+    */}
+    <div className="flex h-[calc(100dvh-56px)] overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <PageHeader
         title="Requests"
         description="Submit, route, and resolve media requests"
@@ -236,128 +379,101 @@ export function RequestsPageClient({
         }
       />
 
-      {/* Status tabs */}
-      <div className="border-b border-border bg-canvas px-5 sm:px-6">
-        <Tabs value={statusFilter} onValueChange={(v) => { setStatusFilter(v); set({ status: v === "open" ? null : v }) }}>
-          <TabsList>
-            {STATUS_FILTERS.map((s) => (
-              <TabsTrigger key={s.value} value={s.value} badge={counts[s.value] || undefined}>
-                {s.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+      <ViewBar
+        fields={fields}
+        records={requests}
+        config={view.config}
+        views={view.views}
+        activeView={view.activeView}
+        dirty={view.dirty}
+        resultCount={result.total}
+        onSelectView={view.selectView}
+        onDeleteView={view.deleteView}
+        onSaveAsNewView={view.saveAsNewView}
+        onReset={view.reset}
+        onSetLayout={view.setLayout}
+        onSetGroupBy={view.setGroupBy}
+        onSetQuery={view.setQuery}
+        onToggleHidden={view.toggleHidden}
+        onAddFilter={view.addFilter}
+        onUpdateFilter={view.updateFilter}
+        onRemoveFilter={view.removeFilter}
+        onAddSort={view.addSort}
+        onUpdateSort={view.updateSort}
+        onRemoveSort={view.removeSort}
+      />
+
+        {/*
+          `min-h-0` is load-bearing: a flex child defaults to `min-height:auto`,
+          which refuses to shrink below its content, so without it the list
+          would push the column taller than the viewport instead of scrolling
+          inside it. The layouts are bounded by this box now rather than by a
+          guessed viewport offset.
+        */}
+        <div className="min-h-0 flex-1 overflow-hidden px-5 sm:px-6 py-5">
+          {view.config.layout === "board" ? (
+            <RequestBoard
+              groups={result.groups}
+              fields={result.visibleFields}
+              groupField={groupField}
+              onOpen={(id) => set({ id })}
+              onMove={handleMove}
+              maxHeight="100%"
+            />
+          ) : (
+            <RequestTable
+              records={result.records}
+              groups={result.groups}
+              fields={result.visibleFields}
+              groupField={groupField}
+              onOpen={(id) => set({ id })}
+              onChangeField={handleChangeField}
+              maxHeight="100%"
+              emptyAction={
+                requests.length === 0 ? { label: "New request", onClick: () => set({ new: "1" }) } : undefined
+              }
+            />
+          )}
+        </div>
       </div>
 
-      <Toolbar>
-        <ToolbarGroup>
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search requests…"
-            leadingIcon={<Search />}
-            className="h-8 w-[260px]"
+      {detail && (
+        <aside className="hidden h-full w-[400px] shrink-0 lg:block xl:w-[440px]">
+          <RequestDetailPanel
+            record={detail}
+            fields={fields}
+            position={detailPosition}
+            total={result.total}
+            onPrev={() => stepDetail(-1)}
+            onNext={() => stepDetail(1)}
+            onClose={() => clear("id")}
+            menuItems={detailMenuItems(detail)}
+            onChangeField={handleChangeField}
           />
-          <Select
-            value={priorityFilter}
-            onChange={setPriorityFilter}
-            options={[{ value: "all", label: "All priorities" }, ...PRIORITIES.map((p) => ({ value: p.value, label: p.label }))]}
-            className="!w-[150px] [&>button]:h-8"
-            aria-label="Priority filter"
-          />
-          <Select
-            value={subTeamFilter}
-            onChange={setSubTeamFilter}
-            options={[{ value: "all", label: "All sub-teams" }, ...subTeams.map((s) => ({ value: s.id, label: s.name }))]}
-            className="!w-[170px] [&>button]:h-8"
-            aria-label="Sub-team filter"
-          />
-        </ToolbarGroup>
-        <span className="text-[11.5px] text-faint tabular-nums">{filtered.length} {filtered.length === 1 ? "request" : "requests"}</span>
-      </Toolbar>
+        </aside>
+      )}
+    </div>
 
-      <div className="px-5 sm:px-6 py-6">
-        {filtered.length === 0 ? (
-          <EmptyState
-            icon={<Inbox />}
-            title={requests.length === 0 ? "No requests yet" : "No matching requests"}
-            description={
-              requests.length === 0
-                ? "Submit your first media request to start routing work to sub-teams."
-                : "Adjust filters or search to see more results."
-            }
-            action={requests.length === 0 ? { label: "New request", onClick: () => set({ new: "1" }) } : undefined}
+      {/*
+        Below lg there is no width to compress into, so the same panel covers
+        the screen instead of sitting beside the list. Same component, so the
+        record navigator and field stack behave identically on a phone.
+      */}
+      {detail && (
+        <div className="fixed inset-0 z-50 bg-surface lg:hidden">
+          <RequestDetailPanel
+            record={detail}
+            fields={fields}
+            position={detailPosition}
+            total={result.total}
+            onPrev={() => stepDetail(-1)}
+            onNext={() => stepDetail(1)}
+            onClose={() => clear("id")}
+            menuItems={detailMenuItems(detail)}
+            onChangeField={handleChangeField}
           />
-        ) : (
-          <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
-            {filtered.map((req) => (
-              <button
-                key={req.id}
-                type="button"
-                onClick={() => set({ id: req.id })}
-                className="group w-full text-left px-4 py-3 hover:bg-surface-hover transition-colors"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[13.5px] font-medium text-foreground">{req.title}</span>
-                      {req.priority === "urgent" && (
-                        <Badge variant="danger" size="sm">
-                          <AlertTriangle className="h-2.5 w-2.5" /> Urgent
-                        </Badge>
-                      )}
-                      {req.priority === "high" && (
-                        <Badge variant="warning" size="sm">High</Badge>
-                      )}
-                      {req.approval_required && (
-                        <Badge variant="info" size="sm">Approval required</Badge>
-                      )}
-                      {req.public_request_link_id && (
-                        <Badge variant="muted" size="sm">
-                          <ExternalLink className="h-2.5 w-2.5" /> Public
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-[12px] text-muted flex-wrap">
-                      <span>{req.requesting_unit ?? "Unknown unit"}</span>
-                      {req.requester?.full_name && (
-                        <>
-                          <span className="text-faint">·</span>
-                          <span className="flex items-center gap-1">
-                            <Avatar name={req.requester.full_name} size="xs" />
-                            {req.requester.full_name}
-                          </span>
-                        </>
-                      )}
-                      {req.deadline && (
-                        <>
-                          <span className="text-faint">·</span>
-                          <span className="tabular-nums">Due {format(new Date(req.deadline), "MMM d")}</span>
-                        </>
-                      )}
-                    </div>
-                    {req.request_sub_teams.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {req.request_sub_teams.map((rst) => (
-                          <Badge key={rst.sub_team_id} variant="muted" size="sm">
-                            {rst.sub_teams?.name ?? "—"}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <StatusBadge status={req.status} size="sm" />
-                    <span className="text-[11px] text-faint tabular-nums">
-                      {format(new Date(req.created_at), "MMM d")}
-                    </span>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Create modal */}
       <Modal
@@ -379,35 +495,48 @@ export function RequestsPageClient({
               <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
                 placeholder="e.g. Sunday recap video edit" required autoFocus />
             </FormField>
-            <FormField label="Requesting unit" required>
-              <Select
-                value={unitCustom ? "Others" : form.requestingUnit}
-                onChange={(v) => {
-                  if (v === "Others") {
-                    setUnitCustom(true)
-                    setForm({ ...form, requestingUnit: "" })
-                  } else {
-                    setUnitCustom(false)
-                    setForm({ ...form, requestingUnit: v })
-                  }
-                }}
-                options={[
-                  { value: "", label: "Select a unit…" },
-                  ...REQUESTING_UNITS.map((u) => ({ value: u, label: u })),
-                  { value: "Others", label: "Others (type in)" },
-                ]}
-              />
-            </FormField>
-            {unitCustom && (
-              <FormField label="Specify unit" required>
-                <Input
-                  value={form.requestingUnit}
-                  onChange={(e) => setForm({ ...form, requestingUnit: e.target.value })}
-                  placeholder="Type your unit name"
-                  required
-                  autoFocus
-                />
+            {/*
+              Filing from inside the app: we already know who you are, so the
+              unit is stated rather than asked for. Only people we can't derive
+              a unit for (no sub-team) still get the picker.
+            */}
+            {defaultUnit ? (
+              <FormField label="Requesting unit" helper="Taken from your sub-team">
+                <Input value={defaultUnit} readOnly className="text-muted" tabIndex={-1} />
               </FormField>
+            ) : (
+              <>
+                <FormField label="Requesting unit" required>
+                  <Select
+                    value={unitCustom ? "Others" : form.requestingUnit}
+                    onChange={(v) => {
+                      if (v === "Others") {
+                        setUnitCustom(true)
+                        setForm({ ...form, requestingUnit: "" })
+                      } else {
+                        setUnitCustom(false)
+                        setForm({ ...form, requestingUnit: v })
+                      }
+                    }}
+                    options={[
+                      { value: "", label: "Select a unit…" },
+                      ...REQUESTING_UNITS.map((u) => ({ value: u, label: u })),
+                      { value: "Others", label: "Others (type in)" },
+                    ]}
+                  />
+                </FormField>
+                {unitCustom && (
+                  <FormField label="Specify unit" required>
+                    <Input
+                      value={form.requestingUnit}
+                      onChange={(e) => setForm({ ...form, requestingUnit: e.target.value })}
+                      placeholder="Type your unit name"
+                      required
+                      autoFocus
+                    />
+                  </FormField>
+                )}
+              </>
             )}
             <FormField label="Priority">
               <Select value={form.priority} onChange={(v) => setForm({ ...form, priority: v })}
@@ -424,11 +553,11 @@ export function RequestsPageClient({
             <FormField label="Date filled">
               <Input value={dateFilled} readOnly className="text-muted" tabIndex={-1} />
             </FormField>
-            <FormField label="Deadline" helper="Optional target date">
+            <FormField label="Due date" helper="Optional target date">
               <DatePicker
                 value={form.deadline}
                 onChange={(v) => setForm({ ...form, deadline: v })}
-                placeholder="Select deadline"
+                placeholder="Select due date"
               />
             </FormField>
             <FormField label="Route to sub-teams" required helper="Pick one or more" className="sm:col-span-2">
@@ -448,6 +577,12 @@ export function RequestsPageClient({
               onChange={(e) => setForm({ ...form, desiredOutput: e.target.value })}
               placeholder="e.g. 2-minute video for Instagram Reels" rows={2} />
           </FormField>
+          <AttachmentField
+            files={attachments}
+            onFilesChange={setAttachments}
+            disabled={loading}
+            label="Attachments"
+          />
           <div className="flex items-center justify-between rounded-md border border-border bg-surface-subtle/50 px-3 py-2.5">
             <div>
               <p className="text-[13px] font-medium text-foreground">Approval required</p>
@@ -462,255 +597,151 @@ export function RequestsPageClient({
       <PublicLinkModal
         open={showNewLink}
         onClose={() => clear("newLink")}
+        existingToken={publicLinks[0]?.token ?? null}
       />
 
-      {/* Detail panel */}
-      <SidePanel
-        open={!!detail}
-        onClose={() => clear("id")}
-        title={detail?.title ?? "Request"}
-        headerSlot={detail && <StatusBadge status={detail.status} size="sm" />}
-        size="lg"
-        footer={
-          detail && (
-            <>
-              <ClarifyAction requestId={detail.id} onSubmit={(q) => handleClarify(detail.id, q)} />
-              <DropdownMenu
-                trigger={
-                  <Button variant="secondary" size="sm">
-                    Change status <MoreHorizontal className="h-3.5 w-3.5" />
-                  </Button>
-                }
-              >
-                <DropdownMenuLabel>Move to</DropdownMenuLabel>
-                <DropdownMenuItem onSelect={() => changeStatus(detail.id, "under_review", "under review")}>
-                  Under review
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => changeStatus(detail.id, "accepted", "accepted")}>
-                  Accept
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => changeStatus(detail.id, "in_progress", "in progress")}>
-                  Start working
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => changeStatus(detail.id, "awaiting_approval", "awaiting approval")}>
-                  Send for approval
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => changeStatus(detail.id, "rejected", "rejected")} variant="danger">
-                  Reject
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => changeStatus(detail.id, "cancelled", "cancelled")} variant="danger">
-                  Cancel
-                </DropdownMenuItem>
-              </DropdownMenu>
-              <Button size="sm" onClick={() => handleComplete(detail.id)}>
-                <CheckCircle2 className="h-3.5 w-3.5" /> Mark complete
-              </Button>
-            </>
-          )
-        }
-      >
-        {detail && <RequestDetail request={detail} />}
-      </SidePanel>
-    </div>
+      {/* Clarification prompt — reachable from the detail panel's kebab menu. */}
+      <ClarifyModal
+        requestId={clarifyFor}
+        onClose={() => setClarifyFor(null)}
+        onSubmit={(q) => { if (clarifyFor) handleClarify(clarifyFor, q) }}
+      />
+    </>
   )
 }
 
+/**
+ * One modal, not two.
+ *
+ * It used to open on a confirmation step whose only content was a button that
+ * said "generate" — asking you to confirm the thing you had just clicked. Now
+ * the link is resolved as the modal opens: an existing active link is reused,
+ * and only a campus with none generates one. Reusing matters — every open of
+ * the old flow minted another row, so a few curious clicks left a pile of live
+ * public links nobody could tell apart.
+ */
 function PublicLinkModal({
-  open, onClose,
+  open, onClose, existingToken,
 }: {
   open: boolean
   onClose: () => void
+  /** Token of an already-active public link, if the campus has one. */
+  existingToken: string | null
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
-  const [saving, setSaving] = useState(false)
-  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
+  const [url, setUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [failed, setFailed] = useState(false)
 
-  async function create() {
-    setSaving(true)
-    const { generatePublicLink } = await import("@/server/actions/public-links")
-    const r = await generatePublicLink()
-    setSaving(false)
-    if (r.error) { toastError(r.error); return }
-    const url = `${window.location.origin}/request/public/${r.data!.token}`
-    setGeneratedUrl(url)
+  // Resolve the link when the modal opens. `open` is the only trigger, so
+  // reopening after a close starts clean rather than showing a stale URL.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    if (!open) {
+      setUrl(null)
+      setCopied(false)
+      setFailed(false)
+      return
+    }
+
+    let cancelled = false
+
+    async function resolve() {
+      if (existingToken) {
+        if (!cancelled) setUrl(`${window.location.origin}/request/public/${existingToken}`)
+        return
+      }
+      const { generatePublicLink } = await import("@/server/actions/public-links")
+      const r = await generatePublicLink()
+      if (cancelled) return
+      if (r.error || !r.data) {
+        setFailed(true)
+        toastError(r.error ?? "Could not create the link.")
+        return
+      }
+      setUrl(`${window.location.origin}/request/public/${r.data.token}`)
+      router.refresh()
+    }
+
+    void resolve()
+    return () => { cancelled = true }
+  }, [open, existingToken, router, toastError])
+
+  async function handleCopy() {
+    if (!url) return
     try {
       await navigator.clipboard.writeText(url)
       setCopied(true)
       success("Link copied to clipboard")
     } catch {
-      setCopied(false)
+      toastError("Couldn't copy — select the link and copy it manually.")
     }
-    router.refresh()
-  }
-
-  function handleClose() {
-    setGeneratedUrl(null)
-    setCopied(false)
-    onClose()
-  }
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(generatedUrl!)
-      setCopied(true)
-      success("Link copied to clipboard")
-    } catch {
-      setCopied(false)
-    }
-  }
-
-  if (generatedUrl) {
-    return (
-      <Modal
-        open={open}
-        onClose={handleClose}
-        title="Public request link"
-        description="Share this link with anyone who needs to submit a request."
-        size="sm"
-      >
-        <div className="space-y-4 py-2">
-          <FormField label="Link URL">
-            <div className="flex items-center gap-2">
-              <Input
-                value={generatedUrl}
-                readOnly
-                onClick={(e) => (e.target as HTMLInputElement).select()}
-                className="flex-1"
-              />
-              <Button size="sm" variant={copied ? "primary" : "secondary"} onClick={handleCopy}>
-                {copied ? "Copied!" : "Copy"}
-              </Button>
-            </div>
-          </FormField>
-        </div>
-      </Modal>
-    )
   }
 
   return (
     <Modal
       open={open}
-      onClose={handleClose}
-      title="Generate public request link"
-      description="A link will be created and copied to your clipboard."
+      onClose={onClose}
+      title="Public request link"
+      description="Anyone with this link can submit a request without signing in."
       size="sm"
-      footer={
-        <>
-          <Button variant="ghost" onClick={handleClose} disabled={saving}>Cancel</Button>
-          <Button onClick={create} loading={saving} disabled={saving}>
-            <Link2 className="h-3.5 w-3.5" /> Generate
-          </Button>
-        </>
-      }
+      footer={<Button variant="ghost" onClick={onClose}>Close</Button>}
     >
-      <div className="space-y-3 py-2">
-        <div className="rounded-lg border border-info/20 bg-info-soft/20 px-3 py-2.5">
-          <p className="text-[12px] text-info">
-            Anyone with this link can submit a media request without logging in.
-          </p>
-        </div>
+      <div className="space-y-4 py-2">
+        <FormField label="Link URL">
+          <div className="flex items-center gap-2">
+            <Input
+              value={url ?? (failed ? "" : "Creating link…")}
+              readOnly
+              placeholder={failed ? "Could not create a link" : undefined}
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              className="flex-1"
+            />
+            <Button
+              size="sm"
+              variant={copied ? "primary" : "secondary"}
+              onClick={handleCopy}
+              disabled={!url}
+            >
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        </FormField>
       </div>
     </Modal>
   )
 }
 
-function ClarifyAction({ requestId, onSubmit }: { requestId: string; onSubmit: (q: string) => void }) {
-  const [open, setOpen] = useState(false)
+function ClarifyModal({
+  requestId, onClose, onSubmit,
+}: {
+  requestId: string | null
+  onClose: () => void
+  onSubmit: (q: string) => void
+}) {
   const [q, setQ] = useState("")
   return (
-    <>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
-        <CornerUpLeft className="h-3.5 w-3.5" /> Ask for clarification
-      </Button>
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title="Ask for clarification"
-        description="Posts a question on the request. Status moves to Clarification."
-        size="sm"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => { onSubmit(q); setQ(""); setOpen(false) }} disabled={!q.trim()}>
-              Send
-            </Button>
-          </>
-        }
-      >
-        <FormField label="Question" required>
-          <Textarea autoFocus value={q} onChange={(e) => setQ(e.target.value)}
-            placeholder={`What's unclear about request ${requestId.slice(0, 8)}?`} />
-        </FormField>
-      </Modal>
-    </>
+    <Modal
+      open={!!requestId}
+      onClose={() => { setQ(""); onClose() }}
+      title="Ask for clarification"
+      description="Posts a question on the request. Status moves to Clarification."
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => { setQ(""); onClose() }}>Cancel</Button>
+          <Button onClick={() => { onSubmit(q); setQ(""); onClose() }} disabled={!q.trim()}>
+            Send
+          </Button>
+        </>
+      }
+    >
+      <FormField label="Question" required>
+        <Textarea autoFocus value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="What's unclear about this request?" />
+      </FormField>
+    </Modal>
   )
 }
 
-function RequestDetail({ request: req }: { request: RequestRow }) {
-  const teams = req.request_sub_teams?.map((j) => j.sub_teams?.name).filter(Boolean) as string[] | undefined
-  return (
-    <div className="space-y-5">
-      <DataList>
-        <DataItem label="Requested by">
-          {req.requester ? (
-            <div className="flex items-center gap-2">
-              <Avatar name={req.requester.full_name} email={req.requester.email} size="xs" />
-              <span>{req.requester.full_name ?? req.requester.email}</span>
-            </div>
-          ) : null}
-        </DataItem>
-        <DataItem label="Unit">{req.requesting_unit}</DataItem>
-        <DataItem label="Priority">
-          <Badge
-            variant={req.priority === "urgent" ? "danger" : req.priority === "high" ? "warning" : "muted"}
-            size="sm"
-            dot
-          >
-            {req.priority}
-          </Badge>
-        </DataItem>
-        <DataItem label="Deadline">
-          {req.deadline ? (
-            <span className="tabular-nums">{format(new Date(req.deadline), "EEEE, MMMM d, yyyy")}</span>
-          ) : null}
-        </DataItem>
-        <DataItem label="Event">{req.events?.title}</DataItem>
-        <DataItem label="Sub-teams">
-          {teams && teams.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {teams.map((t) => <Badge key={t} variant="muted" size="sm">{t}</Badge>)}
-            </div>
-          ) : null}
-        </DataItem>
-        <DataItem label="Approval">
-          {req.approval_required ? <Badge variant="info" size="sm">Required</Badge> : <span className="text-faint">Not required</span>}
-        </DataItem>
-        <DataItem label="Submitted">
-          <span className="tabular-nums">{format(new Date(req.created_at), "MMM d, yyyy 'at' h:mm a")}</span>
-        </DataItem>
-      </DataList>
-
-      {req.description && (
-        <div>
-          <p className="text-[11.5px] font-semibold uppercase tracking-wider text-faint mb-2 flex items-center gap-1.5">
-            <FileText className="h-3 w-3" /> Description
-          </p>
-          <p className="text-[13px] text-foreground whitespace-pre-wrap leading-relaxed">{req.description}</p>
-        </div>
-      )}
-      {req.desired_output && (
-        <div>
-          <p className="text-[11.5px] font-semibold uppercase tracking-wider text-faint mb-2">Desired output</p>
-          <p className="text-[13px] text-foreground whitespace-pre-wrap leading-relaxed">{req.desired_output}</p>
-        </div>
-      )}
-
-      <div className="border-t border-border pt-5">
-        <ActivityThread entityType="request" entityId={req.id} />
-      </div>
-    </div>
-  )
-}

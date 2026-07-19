@@ -315,10 +315,19 @@ code, kbd, samp, pre {
 }
 
 /* ── Focus ────────────────────────────────────────── */
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-  border-radius: 6px;
+/*
+  This MUST live in `@layer base`. Unlayered rules beat layered ones, and
+  Tailwind compiles its utilities into `@layer utilities` — so an unlayered
+  `:focus-visible` here silently outranks every `focus:outline-none` in the
+  app, and components that need their own focus treatment can't opt out
+  without `!important`. Keeping it layered makes it a real default.
+*/
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
 }
 
 /* ── Native date picker ───────────────────────────── */

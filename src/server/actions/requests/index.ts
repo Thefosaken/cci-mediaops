@@ -71,6 +71,17 @@ export async function updateRequestStatus(requestId: string, status: string) {
   return { success: true }
 }
 
+export async function updateRequestPriority(requestId: string, priority: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("requests")
+    .update({ priority })
+    .eq("id", requestId)
+  if (error) return { error: error.message }
+  revalidatePath("/requests")
+  return { success: true }
+}
+
 export async function requestClarification(
   requestId: string,
   question: string

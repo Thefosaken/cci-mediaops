@@ -113,5 +113,6 @@ export function FieldIcon({ name, type, className }: FieldIconProps) {
     (type ? TYPE_FALLBACK[type] : undefined) ??
     Circle
 
-  return <Icon className={cn("h-3.5 w-3.5 shrink-0", className)} aria-hidden />
+  // 16px — the dense-UI icon size (§15). Overridable via `className`.
+  return <Icon className={cn("h-4 w-4 shrink-0", className)} aria-hidden />
 }

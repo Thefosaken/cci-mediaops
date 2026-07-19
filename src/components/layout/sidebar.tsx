@@ -215,7 +215,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onCommandOpen}
-            title="Search (\u2318K)"
+            title="Search (⌘K)"
             aria-label="Search"
             className="flex items-center justify-center h-8 w-8 mx-auto rounded-md text-faint hover:text-foreground hover:bg-surface-subtle transition-colors"
           >
@@ -232,8 +232,8 @@ export function Sidebar({
             )}
           >
             <Search className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span className="flex-1 text-left">Search\u2026</span>
-            <Kbd size="sm">\u2318K</Kbd>
+            <span className="flex-1 text-left">Search…</span>
+            <Kbd size="sm">⌘K</Kbd>
           </button>
         )}
       </div>

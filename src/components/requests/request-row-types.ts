@@ -22,6 +22,16 @@ export type RequestRow = {
   request_sub_teams: { sub_team_id: string; sub_teams: { id: string; name: string } | null }[]
   requester: { full_name: string | null; email: string | null } | null
   events?: { id: string; title: string; start_time: string } | null
+  /**
+   * Work spawned from this request. `requests` has no assignee column of its
+   * own — a request is routed to sub-teams, and the people actually doing it
+   * are the assignees on its tasks. "Assigned to" is derived from here.
+   */
+  tasks?: {
+    id: string
+    assigned_user_id: string | null
+    assigned_user: { id: string; full_name: string | null; email: string | null } | null
+  }[]
 }
 
 export type SubTeamLite = { id: string; name: string }

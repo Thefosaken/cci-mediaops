@@ -272,7 +272,7 @@ function NotificationsSection() {
         {[
           { key: "assignments", label: "Assignments", desc: "When you're assigned to a service role." },
           { key: "approvals", label: "Approvals", desc: "When work is awaiting your approval." },
-          { key: "deadlines", label: "Deadlines", desc: "Reminders for tasks and request deadlines." },
+          { key: "deadlines", label: "Due dates", desc: "Reminders for tasks and request due dates." },
           { key: "incidents", label: "Incidents", desc: "When new incidents are reported in your sub-teams." },
           { key: "digest", label: "Weekly digest", desc: "Weekly summary email of your team's activity." },
         ].map((p) => (
