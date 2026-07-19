@@ -52,9 +52,11 @@ export function DatePickerGrid({
   const today = startOfDay(new Date())
 
   return (
-    // Capped width. Left to fill a large modal, seven square cells become 80px blocks
-    // that dominate the dialog; a date picker is a fixed-size instrument.
-    <div className="mx-auto w-full max-w-[272px]">
+    // Fills its container rather than sitting capped inside it. The cap left a wide
+    // card with a narrow calendar floating in the middle, which is what read as off —
+    // the container and its content disagreeing about how much room the thing needs.
+    // Sized by the modal instead, which is now narrow enough for cells to land right.
+    <div className="w-full">
       {/* Month navigation — scheduling often spans a month boundary, and being locked
           to whatever the calendar behind was showing made that impossible. */}
       <div className="mb-2.5 flex items-center justify-between">
@@ -80,7 +82,7 @@ export function DatePickerGrid({
       </div>
 
       {/* Weekday headers, sitting over the columns they act on. */}
-      <div className="grid grid-cols-7 gap-0.5">
+      <div className="grid grid-cols-7 gap-1">
         {WEEKDAYS.map((d, i) => (
           <button
             key={i}
@@ -88,14 +90,14 @@ export function DatePickerGrid({
             onClick={() => onToggleWeekday(i)}
             title={`Select every ${format(new Date(2024, 0, 7 + i), "EEEE")}`}
             className="grid h-6 place-items-center rounded text-[10.5px] font-semibold uppercase tracking-wide
-                       text-faint transition-colors duration-100 hover:bg-surface-subtle hover:text-foreground"
+                       text-muted transition-colors duration-100 hover:bg-surface-subtle hover:text-foreground"
           >
             {d}
           </button>
         ))}
       </div>
 
-      <div className="mt-0.5 grid grid-cols-7 gap-0.5">
+      <div className="mt-1 grid grid-cols-7 gap-1">
         {Array.from({ length: leadIn }).map((_, i) => (
           <span key={`pad-${i}`} />
         ))}
@@ -115,17 +117,19 @@ export function DatePickerGrid({
               onClick={() => onToggle(iso)}
               title={isTaken ? "Already on duty" : undefined}
               className={cn(
-                "relative grid aspect-square place-items-center rounded-md text-[12px] tabular-nums",
+                "relative grid aspect-square place-items-center rounded-md text-[13px] tabular-nums",
                 "transition-[background-color,color,box-shadow] duration-100 ease-[var(--ease-out-quart)]",
                 isTaken
                   ? "cursor-not-allowed text-faint"
                   : on
                     ? "bg-primary font-semibold text-[var(--color-primary-foreground)]"
                     : cn(
-                        "text-muted hover:bg-surface-subtle hover:text-foreground",
-                        // Past days stay selectable — backfilling a rota is legitimate —
-                        // but recede so the eye lands on what's ahead.
-                        past && "opacity-45"
+                        "hover:bg-surface-subtle hover:text-foreground",
+                        // Past days recede by colour, not opacity. At 45% opacity most
+                        // of a month reads as disabled — on the 19th, two thirds of the
+                        // grid looked broken rather than merely behind us. They stay
+                        // fully selectable; backfilling a rota is legitimate.
+                        past ? "text-faint" : "text-foreground"
                       ),
                 isToday && !on && "ring-1 ring-inset ring-border-strong"
               )}

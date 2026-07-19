@@ -169,7 +169,7 @@ export function ScheduleModal({
       onClose={onClose}
       title="Schedule people"
       description={format(month, "MMMM yyyy")}
-      size="lg"
+      size="default"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -311,7 +311,7 @@ export function ScheduleModal({
             When
           </h3>
 
-          <div className="rounded-md border border-border bg-surface p-3">
+          <div className="rounded-md border border-border bg-surface p-3.5">
             <DatePickerGrid
               month={viewMonth}
               onMonthChange={setViewMonth}
