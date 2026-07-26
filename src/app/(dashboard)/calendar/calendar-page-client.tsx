@@ -29,7 +29,7 @@ import { resolveTeamColor, TEAM_COLORS, type TeamColor } from "./team-colors"
 import { MonthGrid, WeekGrid, type CalendarEntry } from "./calendar-grid"
 import { DayPopover, type PopoverEvent } from "./day-popover"
 import { ScheduleModal, type SchedulableSlot } from "./schedule-modal"
-import { EventModal } from "./event-modal"
+import { EventModal, type EditableEvent } from "./event-modal"
 import { PublishBar } from "./publish-bar"
 import { CopyRosterModal, type CopyableSlot } from "./copy-roster-modal"
 import { RunSheetLauncher } from "./run-sheet-launcher"
@@ -68,6 +68,7 @@ interface EventRow {
   id: string
   title: string
   event_type: string
+  description: string | null
   start_time: string
   end_time: string | null
   status: string
@@ -105,6 +106,7 @@ interface Props {
   currentUserId: string
   canSchedule: boolean
   canEditEvents: boolean
+  canDeleteEvents: boolean
   canCreateRunSheet: boolean
   canPublish: boolean
   seesAllTeams: boolean
@@ -124,6 +126,7 @@ export function CalendarPageClient({
   currentUserId,
   canSchedule,
   canEditEvents,
+  canDeleteEvents,
   canCreateRunSheet,
   canPublish,
   seesAllTeams
@@ -140,6 +143,7 @@ export function CalendarPageClient({
   /** Only one of these is ever open; each carries the context it needs to act. */
   const [scheduling, setScheduling] = useState<{ slotId?: string } | null>(null)
   const [creatingEvent, setCreatingEvent] = useState<Date | null>(null)
+  const [editingEvent, setEditingEvent] = useState<string | null>(null)
   const [copyingTo, setCopyingTo] = useState<string | null>(null)
   const [launchingSheet, setLaunchingSheet] = useState<string | null>(null)
 
@@ -448,6 +452,38 @@ export function CalendarPageClient({
   const copyTarget = copyingTo ? copyableSlots.find((s) => s.id === copyingTo) : null
   const launchTarget = launchingSheet ? slotById.get(launchingSheet) : null
 
+  /**
+   * The event being edited, reshaped for the composer.
+   *
+   * Read from the same `events` array the grid draws from rather than refetched: it
+   * already carries the slots and their requirements, and a second read would open the
+   * form on a version of the day the person is not looking at.
+   */
+  const editTarget = useMemo<EditableEvent | null>(() => {
+    const row = editingEvent ? events.find((e) => e.id === editingEvent) : null
+    if (!row) return null
+    return {
+      id: row.id,
+      title: row.title,
+      event_type: row.event_type,
+      description: row.description,
+      location: row.location,
+      start_time: row.start_time,
+      end_time: row.end_time,
+      status: row.status,
+      recurrence_group_id: row.recurrence_group_id,
+      slots: row.event_slots.map((s) => ({
+        id: s.id,
+        label: s.label,
+        slot_order: s.slot_order,
+        slot_date: s.slot_date,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        requirements: s.event_slot_requirements
+      }))
+    }
+  }, [editingEvent, events])
+
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
       <PageHeader
@@ -614,9 +650,12 @@ export function CalendarPageClient({
             setSelected(null)
             setCreatingEvent(day)
           }}
-          // Editing an existing event reuses the run sheet route's detail surface
-          // rather than a second composer — one place to change an event, not two.
-          onEditEvent={(eventId) => router.push(`/calendar?id=${eventId}`)}
+          // Editing opens the composer on the existing event — the same form that
+          // created it, so there is one place to change an event, not two.
+          onEditEvent={(eventId) => {
+            setSelected(null)
+            setEditingEvent(eventId)
+          }}
           onCreateRunSheet={(slotId) => {
             setSelected(null)
             setLaunchingSheet(slotId)
@@ -657,6 +696,25 @@ export function CalendarPageClient({
           onClose={() => setCreatingEvent(null)}
           onDone={(msg) => {
             setCreatingEvent(null)
+            settle(msg)
+          }}
+          onError={toast.error}
+        />
+      )}
+
+      {editTarget && canEditEvents && (
+        <EventModal
+          // Remounted per event, so the form's state is that event's and never the
+          // last one's — the fields are seeded once, from props.
+          key={editTarget.id}
+          initialDate={new Date(editTarget.start_time)}
+          event={editTarget}
+          teams={subTeams}
+          colorFor={colorFor}
+          canDelete={canDeleteEvents}
+          onClose={() => setEditingEvent(null)}
+          onDone={(msg) => {
+            setEditingEvent(null)
             settle(msg)
           }}
           onError={toast.error}

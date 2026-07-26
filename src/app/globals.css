@@ -330,13 +330,28 @@ code, kbd, samp, pre {
   }
 }
 
-/* ── Native date picker ───────────────────────────── */
-::-webkit-calendar-picker-indicator {
-  opacity: 0.5;
-  cursor: pointer;
-}
-[data-theme="dark"] ::-webkit-calendar-picker-indicator {
-  filter: invert(0.9);
+/*
+  ── Native date picker ─────────────────────────────
+
+  Layered, and that is the whole point. Unlayered rules outrank everything
+  Tailwind emits into `@layer utilities`, so the previous version of this block
+  silently beat `[&::-webkit-calendar-picker-indicator]:opacity-0` in DateInput.
+  The result was two icons in every date and time field: the themed lucide glyph
+  the design system draws, and the browser's own indicator — stretched invisibly
+  across the control as intended, but forced back to half opacity by this rule,
+  so it surfaced as a second, dimmer icon floating in the middle of the field.
+
+  As a base-layer default it still gives a bare `<input type="date">` a usable
+  affordance, while any component that dresses its own field can opt out.
+*/
+@layer base {
+  ::-webkit-calendar-picker-indicator {
+    opacity: 0.5;
+    cursor: pointer;
+  }
+  [data-theme="dark"] ::-webkit-calendar-picker-indicator {
+    filter: invert(0.9);
+  }
 }
 
 /* ── Skeleton shimmer ─────────────────────────────── */

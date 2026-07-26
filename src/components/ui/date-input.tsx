@@ -20,8 +20,14 @@ interface DateInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
  * the picker wherever you click it, and the only glyph anyone sees is the lucide icon
  * on the right, which does follow the theme.
  *
- * For picking a date, prefer DatePicker — it is the designed calendar used across the
- * app. This is for times, and for the rare case where a raw native field is wanted.
+ * That hiding only holds because the global `::-webkit-calendar-picker-indicator`
+ * rule lives in `@layer base`. Unlayered, it outranks every Tailwind utility and the
+ * indicator reappears at half opacity in the middle of the field — which is exactly
+ * the two-icon bug this control was written to avoid.
+ *
+ * Prefer the designed controls: DatePicker for dates, TimePicker for times. Both are
+ * keyboard-driven, portaled, and look like the rest of the app in every browser. This
+ * is the escape hatch for the rare case where a raw native field is genuinely wanted.
  */
 const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
   ({ className, type = "date", ...props }, ref) => {
@@ -50,6 +56,7 @@ const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
             "[&::-webkit-calendar-picker-indicator]:w-full",
             "[&::-webkit-calendar-picker-indicator]:cursor-pointer",
             "[&::-webkit-calendar-picker-indicator]:opacity-0",
+            "[&::-webkit-calendar-picker-indicator]:[filter:none]",
             className
           )}
           {...props}

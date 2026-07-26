@@ -2,13 +2,30 @@
 
 import { useMemo, useRef, useState, type ReactNode } from "react"
 import { format } from "date-fns"
-import { ChevronRight, Minus, Plus, Repeat, Trash2 } from "lucide-react"
+import {
+  AlertTriangle,
+  ChevronRight,
+  Minus,
+  Plus,
+  Repeat,
+  Trash2
+} from "lucide-react"
 
 import { cn } from "@/lib/utils/cn"
 import { EVENT_TYPES } from "@/constants"
 import { MAX_SLOTS_PER_EVENT } from "@/lib/validators"
 import type { EventInput } from "@/lib/validators"
-import { createEvent } from "@/server/actions/events"
+import {
+  addSlot,
+  cancelEvent,
+  createEvent,
+  deleteEvent,
+  deleteSlot,
+  describeEventImpact,
+  setSlotRequirements,
+  updateEvent,
+  updateSlot
+} from "@/server/actions/events"
 import { expandRecurrence, toIsoDate, type Frequency } from "@/lib/utils/rostering"
 import { TEAM_COLORS, type TeamColor } from "./team-colors"
 
@@ -16,13 +33,13 @@ import { Modal } from "@/components/ui/modal"
 import { Button, IconButton } from "@/components/ui/button"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
-import { DateInput } from "@/components/ui/date-input"
 import { DatePicker } from "@/components/ui/date-picker"
+import { TimePicker } from "@/components/ui/time-picker"
 import { FormField } from "@/components/ui/form-field"
 import { Switch } from "@/components/ui/switch"
 
 /**
- * Creating an event.
+ * Composing an event, and editing one.
  *
  * The order is what → services → repeat, because that is the order the answers exist
  * in someone's head: they know it is a Sunday Service before they know it runs twice,
@@ -36,6 +53,12 @@ import { Switch } from "@/components/ui/switch"
  * The repeat preview is the load-bearing part of the third section. A frequency and a
  * count are two small numbers that quietly mean fifty-two rows in the calendar; showing
  * the dates they land on is the only moment before commit where that is visible.
+ *
+ * Edit is the same form, not a second one. An event's shape is its details plus its
+ * services, and a separate editor would drift from the composer within a release —
+ * two places to add a field is one place to forget. What changes in edit mode is the
+ * ending: repeat disappears (a series is created, never retro-fitted), and the footer
+ * grows the two ways an event ends.
  */
 
 /** Suggestions, cycled by position — the first service is very rarely called anything else. */
@@ -47,8 +70,33 @@ const FREQUENCIES = [
   { value: "monthly", label: "Every month" }
 ]
 
-interface SlotDraft {
+/** The event as the calendar already holds it, when one is being edited. */
+export interface EditableEvent {
   id: string
+  title: string
+  event_type: string
+  description: string | null
+  location: string | null
+  start_time: string
+  end_time: string | null
+  status: string
+  recurrence_group_id: string | null
+  slots: {
+    id: string
+    label: string
+    slot_order: number
+    slot_date: string
+    start_time: string
+    end_time: string | null
+    requirements: { sub_team_id: string; needed_count: number }[]
+  }[]
+}
+
+interface SlotDraft {
+  /** Local key. Stable across renders; unrelated to the database id. */
+  id: string
+  /** Set only for a service that already exists on the server. */
+  existingId?: string
   label: string
   start: string
   end: string
@@ -59,40 +107,62 @@ interface SlotDraft {
 
 export function EventModal({
   initialDate,
+  event,
   teams,
   colorFor,
+  canDelete = false,
   onClose,
   onDone,
   onError
 }: {
-  /** The day the user clicked; prefills date fields. */
+  /** The day the user clicked; prefills date fields when creating. */
   initialDate: Date
+  /** Present when editing. Absent means this is a new event. */
+  event?: EditableEvent
   teams: { id: string; name: string; color: string | null }[]
   colorFor: Map<string, TeamColor>
+  /** Cancelling and deleting are an administrator's call, not a lead's. */
+  canDelete?: boolean
   onClose: () => void
   onDone: (message: string) => void
   onError: (message: string) => void
 }) {
-  const [title, setTitle] = useState("")
-  const [eventType, setEventType] = useState("")
-  const [location, setLocation] = useState("")
-  const [description, setDescription] = useState("")
-  const [date, setDate] = useState(toIsoDate(initialDate))
-  const [startTime, setStartTime] = useState("09:00")
-  const [endTime, setEndTime] = useState("")
+  const editing = event !== undefined
 
-  const [slots, setSlots] = useState<SlotDraft[]>([])
-  const nextSlotId = useRef(0)
+  const [title, setTitle] = useState(event?.title ?? "")
+  const [eventType, setEventType] = useState(event?.event_type ?? "")
+  const [location, setLocation] = useState(event?.location ?? "")
+  const [description, setDescription] = useState(event?.description ?? "")
+  const [date, setDate] = useState(
+    toIsoDate(event ? new Date(event.start_time) : initialDate)
+  )
+  const [startTime, setStartTime] = useState(
+    event ? clockOf(event.start_time) : "09:00"
+  )
+  const [endTime, setEndTime] = useState(
+    event?.end_time ? clockOf(event.end_time) : ""
+  )
+
+  const [slots, setSlots] = useState<SlotDraft[]>(() => draftsFrom(event))
+  const nextSlotId = useRef(slots.length)
+
+  /** What the server held when this opened, so saving can send only what moved. */
+  const baseline = useRef(draftsFrom(event))
 
   const [repeats, setRepeats] = useState(false)
   const [frequency, setFrequency] = useState<Frequency>("weekly")
   const [countText, setCountText] = useState("4")
 
   const [saving, setSaving] = useState(false)
+  /** Two-step destructive confirm, in place — a modal on top of a modal is a maze. */
+  const [ending, setEnding] = useState<null | "cancel" | "delete">(null)
+  const [impact, setImpact] = useState<{ slots: number; duties: number; runSheets: number } | null>(
+    null
+  )
 
   const repeatCount = Math.min(52, Math.max(2, Math.floor(Number(countText)) || 2))
 
-  const addSlot = () => {
+  const addService = () => {
     const id = String(nextSlotId.current++)
     setSlots((prev) => [
       ...prev,
@@ -146,7 +216,9 @@ export function EventModal({
     return base ? expandRecurrence(base, frequency, repeatCount) : []
   }, [repeats, date, startTime, frequency, repeatCount])
 
-  const submit = async () => {
+  /* ── Create ──────────────────────────────────────────────── */
+
+  const create = async () => {
     const start = localDateTime(date, startTime)
     if (!start) return
 
@@ -208,43 +280,187 @@ export function EventModal({
     )
   }
 
+  /* ── Save an existing one ────────────────────────────────── */
+
+  /**
+   * Saved as a diff rather than a replace.
+   *
+   * A service carries duties, a run sheet and a position in the day. Deleting and
+   * re-adding the four services of a Sunday to change one label would take every
+   * roster on them with it, so an untouched service is left strictly alone and only
+   * what actually moved is sent.
+   */
+  const save = async () => {
+    if (!event) return
+    const start = localDateTime(date, startTime)
+    if (!start) return
+
+    const end = endTime ? localDateTime(date, endTime) : null
+    const slotDate = toIsoDate(start)
+
+    setSaving(true)
+
+    const detail = await updateEvent(event.id, {
+      title: title.trim(),
+      eventType,
+      description: description.trim(),
+      location: location.trim(),
+      startTime: start.toISOString(),
+      // "" clears it; undefined would leave the old end time behind.
+      endTime: end ? end.toISOString() : ""
+    })
+    if (detail.error) {
+      setSaving(false)
+      return onError(detail.error)
+    }
+
+    const kept = new Set(slots.map((s) => s.existingId).filter(Boolean))
+
+    for (const gone of baseline.current) {
+      if (gone.existingId && !kept.has(gone.existingId)) {
+        const res = await deleteSlot(gone.existingId)
+        if (res.error) {
+          setSaving(false)
+          return onError(res.error)
+        }
+      }
+    }
+
+    for (const [index, slot] of slots.entries()) {
+      const label = slot.label.trim() || suggestionFor(index)
+      const startIso = (localDateTime(date, slot.start) ?? start).toISOString()
+      const endIso = slot.end ? (localDateTime(date, slot.end)?.toISOString() ?? null) : null
+      const wanted = Object.entries(slot.requirements)
+        .filter(([, needed]) => needed > 0)
+        .map(([subTeamId, neededCount]) => ({ subTeamId, neededCount }))
+
+      if (!slot.existingId) {
+        const res = await addSlot(event.id, {
+          label,
+          slotOrder: index + 1,
+          slotDate,
+          startTime: startIso,
+          endTime: endIso ?? undefined,
+          requirements: wanted
+        })
+        if (res.error) {
+          setSaving(false)
+          return onError(res.error)
+        }
+        continue
+      }
+
+      const before = baseline.current.find((b) => b.existingId === slot.existingId)
+      const original = event.slots.find((s) => s.id === slot.existingId)
+
+      const detailsMoved =
+        !before ||
+        before.label !== slot.label ||
+        before.start !== slot.start ||
+        before.end !== slot.end ||
+        original?.slot_date !== slotDate
+
+      if (detailsMoved) {
+        const res = await updateSlot(slot.existingId, {
+          label,
+          slotDate,
+          startTime: startIso,
+          endTime: endIso
+        })
+        if (res.error) {
+          setSaving(false)
+          return onError(res.error)
+        }
+      }
+
+      if (!before || !sameRequirements(before.requirements, slot.requirements)) {
+        const res = await setSlotRequirements(slot.existingId, wanted)
+        if (res.error) {
+          setSaving(false)
+          return onError(res.error)
+        }
+      }
+    }
+
+    setSaving(false)
+    onDone(`${title.trim() || "Event"} updated`)
+  }
+
+  /* ── Ending an event ─────────────────────────────────────── */
+
+  const beginEnding = async (kind: "cancel" | "delete") => {
+    if (!event) return
+    setEnding(kind)
+    setImpact(null)
+    // Fetched at the moment of asking, so the sentence names real numbers rather than
+    // a generic warning nobody reads.
+    setImpact(await describeEventImpact(event.id))
+  }
+
+  const confirmEnding = async () => {
+    if (!event || !ending) return
+    setSaving(true)
+    const res = ending === "cancel" ? await cancelEvent(event.id) : await deleteEvent(event.id)
+    setSaving(false)
+    if (res.error) return onError(res.error)
+    onDone(ending === "cancel" ? `${event.title} cancelled` : `${event.title} deleted`)
+  }
+
   const day = localDateTime(date, "12:00")
+  const incomplete = !title.trim() || !eventType || !startTime || slotHasError || eventTimeError !== null
 
   return (
     <Modal
       open
       onClose={onClose}
-      title="New event"
+      title={editing ? "Edit event" : "New event"}
       description={day ? format(day, "EEEE d MMMM yyyy") : "Pick a date"}
       size="lg"
       footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            loading={saving}
-            disabled={
-              !title.trim() ||
-              !eventType ||
-              !startTime ||
-              slotHasError ||
-              eventTimeError !== null
-            }
-            onClick={submit}
-          >
-            {occurrences.length > 1 ? `Create ${occurrences.length} events` : "Create event"}
-          </Button>
-        </>
+        ending ? (
+          <EndingFooter
+            kind={ending}
+            impact={impact}
+            saving={saving}
+            onBack={() => setEnding(null)}
+            onConfirm={confirmEnding}
+          />
+        ) : (
+          <>
+            {editing && canDelete && (
+              <div className="mr-auto flex items-center gap-1">
+                {event?.status !== "cancelled" && (
+                  <Button size="sm" variant="ghost" onClick={() => beginEnding("cancel")}>
+                    Cancel event
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-danger hover:text-danger"
+                  onClick={() => beginEnding("delete")}
+                >
+                  Delete
+                </Button>
+              </div>
+            )}
+            <Button variant="ghost" onClick={onClose}>
+              Close
+            </Button>
+            <Button loading={saving} disabled={incomplete} onClick={editing ? save : create}>
+              {editing
+                ? "Save changes"
+                : occurrences.length > 1
+                  ? `Create ${occurrences.length} events`
+                  : "Create event"}
+            </Button>
+          </>
+        )
       }
     >
-      <div className="space-y-5">
+      <div className="space-y-6">
         {/* ── What ────────────────────────────────────────────── */}
-        <section>
-          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-            What
-          </h3>
-
+        <Section title="What">
           <div className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FormField label="Title" required>
@@ -252,7 +468,7 @@ export function EventModal({
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Sunday Service"
-                  autoFocus
+                  autoFocus={!editing}
                 />
               </FormField>
 
@@ -283,43 +499,40 @@ export function EventModal({
               />
             </FormField>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-[1.4fr_1fr_1fr]">
               <FormField label="Date" required>
                 <DatePicker value={date} onChange={setDate} />
               </FormField>
 
               <FormField label="Starts" required>
-                <DateInput
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                />
+                <TimePicker value={startTime} onChange={setStartTime} />
               </FormField>
 
               <FormField label="Ends" hint="Optional" error={eventTimeError ?? undefined}>
-                <DateInput
-                  type="time"
+                {/* Anchored to the start, so the list reads as durations — which is
+                    how anyone actually decides when a service ends. */}
+                <TimePicker
                   value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
+                  onChange={setEndTime}
+                  relativeTo={startTime}
+                  clearable
                 />
               </FormField>
             </div>
           </div>
-        </section>
+        </Section>
 
         {/* ── Services ────────────────────────────────────────── */}
-        <section>
-          <div className="mb-2 flex items-baseline justify-between">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-              Services
-            </h3>
-            {slots.length > 0 && (
-              <span className="text-[11px] text-faint">
+        <Section
+          title="Services"
+          aside={
+            slots.length > 0 ? (
+              <span className="text-[11px] tabular-nums text-faint">
                 {slots.length} of {MAX_SLOTS_PER_EVENT}
               </span>
-            )}
-          </div>
-
+            ) : undefined
+          }
+        >
           {slots.length === 0 ? (
             <p className="text-[12.5px] leading-relaxed text-muted">
               An event with no services is rostered as one all-day block. Add them only when
@@ -335,10 +548,11 @@ export function EventModal({
                 return (
                   <li
                     key={slot.id}
-                    className="rounded-md border border-border bg-[var(--surface-subtle)] p-3"
+                    className="rounded-lg border border-border bg-[var(--surface-subtle)] p-3
+                               transition-colors duration-150 focus-within:border-border-strong"
                   >
                     <div className="flex items-start gap-2.5">
-                      <span className="mt-1.5 grid size-5 shrink-0 place-items-center rounded-full bg-surface text-[11px] font-semibold text-muted">
+                      <span className="mt-2.5 grid size-5 shrink-0 place-items-center rounded-full bg-surface text-[11px] font-semibold tabular-nums text-muted">
                         {index + 1}
                       </span>
 
@@ -349,23 +563,21 @@ export function EventModal({
                             onChange={(e) => patchSlot(slot.id, { label: e.target.value })}
                             placeholder={suggestionFor(index)}
                             aria-label={`Service ${index + 1} name`}
-                            className="min-w-[9rem] flex-1"
+                            className="h-10 min-w-[9rem] flex-1 rounded-lg bg-canvas"
                           />
-                          {/* Boxed rather than sized directly — DateInput's icon wrapper
-                              is w-full, so the width has to live outside it. */}
-                          <div className="w-[7.25rem] shrink-0">
-                            <DateInput
-                              type="time"
+                          <div className="w-[7.75rem] shrink-0">
+                            <TimePicker
                               value={slot.start}
-                              onChange={(e) => patchSlot(slot.id, { start: e.target.value })}
+                              onChange={(v) => patchSlot(slot.id, { start: v })}
                               aria-label={`Service ${index + 1} start`}
                             />
                           </div>
-                          <div className="w-[7.25rem] shrink-0">
-                            <DateInput
-                              type="time"
+                          <div className="w-[7.75rem] shrink-0">
+                            <TimePicker
                               value={slot.end}
-                              onChange={(e) => patchSlot(slot.id, { end: e.target.value })}
+                              onChange={(v) => patchSlot(slot.id, { end: v })}
+                              relativeTo={slot.start}
+                              clearable
                               aria-label={`Service ${index + 1} end, optional`}
                             />
                           </div>
@@ -389,7 +601,7 @@ export function EventModal({
                           >
                             <ChevronRight
                               className={cn(
-                                "size-3 shrink-0 transition-transform duration-150",
+                                "size-3 shrink-0 transition-transform duration-150 ease-[var(--ease-out-quart)]",
                                 slot.teamsOpen && "rotate-90"
                               )}
                             />
@@ -466,6 +678,7 @@ export function EventModal({
                       <IconButton
                         label={`Remove service ${index + 1}`}
                         size="sm"
+                        className="mt-0.5"
                         onClick={() => removeSlot(slot.id)}
                       >
                         <Trash2 className="size-3.5" />
@@ -478,7 +691,7 @@ export function EventModal({
           )}
 
           {slots.length < MAX_SLOTS_PER_EVENT ? (
-            <Button size="sm" variant="outline" onClick={addSlot} className="mt-2.5">
+            <Button size="sm" variant="outline" onClick={addService} className="mt-2.5">
               <Plus className="size-3.5" />
               Add service
             </Button>
@@ -489,69 +702,170 @@ export function EventModal({
               {MAX_SLOTS_PER_EVENT} services is the maximum for one day.
             </p>
           )}
-        </section>
 
-        {/* ── Repeat ──────────────────────────────────────────── */}
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-              Repeat
-            </h3>
-            <Switch checked={repeats} onChange={setRepeats} label="Repeat this event" />
-          </div>
-
-          {!repeats ? (
-            <p className="text-[12.5px] text-muted">
-              A one-off. Turn this on for a service that runs to a pattern.
+          {editing && slots.some((s) => !s.existingId) && (
+            <p className="mt-2 text-[11.5px] text-faint">
+              New services take the next free position on the day.
             </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <FormField label="How often">
-                  <Select
-                    value={frequency}
-                    onChange={(value) => setFrequency(value as Frequency)}
-                    options={FREQUENCIES}
-                  />
-                </FormField>
-
-                <FormField label="How many times" helper="Between 2 and 52.">
-                  <Input
-                    type="number"
-                    min={2}
-                    max={52}
-                    value={countText}
-                    onChange={(e) => setCountText(e.target.value)}
-                  />
-                </FormField>
-              </div>
-
-              {/* Each occurrence becomes a real row. Reading the first dates back is the
-                  difference between committing a term and committing a year. */}
-              {occurrences.length > 0 && (
-                <div className="mt-3 rounded-md border border-border bg-[var(--surface-subtle)] px-3 py-2.5">
-                  <p className="flex items-start gap-1.5 text-[12.5px] text-foreground">
-                    <Repeat className="mt-0.5 size-3.5 shrink-0 text-faint" />
-                    <span>
-                      {occurrences
-                        .slice(0, 3)
-                        .map((d) => format(d, "EEE d MMM"))
-                        .join(" · ")}
-                    </span>
-                  </p>
-                  {occurrences.length > 3 && (
-                    <p className="mt-1 pl-5 text-[11.5px] text-muted">
-                      …and {occurrences.length - 3} more, ending{" "}
-                      {format(occurrences[occurrences.length - 1], "d MMMM yyyy")}
-                    </p>
-                  )}
-                </div>
-              )}
-            </>
           )}
-        </section>
+        </Section>
+
+        {/* ── Repeat, or the series this belongs to ───────────── */}
+        {editing ? (
+          event?.recurrence_group_id && (
+            <Section title="Series">
+              <p className="flex items-start gap-1.5 text-[12.5px] text-muted">
+                <Repeat className="mt-0.5 size-3.5 shrink-0 text-faint" />
+                <span>
+                  This event repeats. Changes here apply to this date only — the other
+                  dates in the series keep what they had.
+                </span>
+              </p>
+            </Section>
+          )
+        ) : (
+          <Section
+            title="Repeat"
+            aside={<Switch checked={repeats} onChange={setRepeats} label="Repeat this event" />}
+          >
+            {!repeats ? (
+              <p className="text-[12.5px] text-muted">
+                A one-off. Turn this on for a service that runs to a pattern.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <FormField label="How often">
+                    <Select
+                      value={frequency}
+                      onChange={(value) => setFrequency(value as Frequency)}
+                      options={FREQUENCIES}
+                    />
+                  </FormField>
+
+                  <FormField label="How many times" helper="Between 2 and 52.">
+                    <Input
+                      type="number"
+                      min={2}
+                      max={52}
+                      value={countText}
+                      onChange={(e) => setCountText(e.target.value)}
+                    />
+                  </FormField>
+                </div>
+
+                {/* Each occurrence becomes a real row. Reading the first dates back is the
+                    difference between committing a term and committing a year. */}
+                {occurrences.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-border bg-[var(--surface-subtle)] px-3 py-2.5">
+                    <p className="flex items-start gap-1.5 text-[12.5px] text-foreground">
+                      <Repeat className="mt-0.5 size-3.5 shrink-0 text-faint" />
+                      <span>
+                        {occurrences
+                          .slice(0, 3)
+                          .map((d) => format(d, "EEE d MMM"))
+                          .join(" · ")}
+                      </span>
+                    </p>
+                    {occurrences.length > 3 && (
+                      <p className="mt-1 pl-5 text-[11.5px] text-muted">
+                        …and {occurrences.length - 3} more, ending{" "}
+                        {format(occurrences[occurrences.length - 1], "d MMMM yyyy")}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </Section>
+        )}
       </div>
     </Modal>
+  )
+}
+
+/* ────────────────────────────────────────────────────────────────── */
+
+/** A titled band. The hairline does the separating so the sections need no boxes. */
+function Section({
+  title,
+  aside,
+  children
+}: {
+  title: string
+  aside?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section>
+      <div className="mb-2.5 flex min-h-[22px] items-center justify-between gap-3">
+        <h3 className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+          {title}
+        </h3>
+        <span className="h-px min-w-4 flex-1 bg-border" aria-hidden="true" />
+        {aside}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+/**
+ * The footer, once someone has reached for one of the two ways an event ends.
+ *
+ * The blast radius is named before the button that causes it. "Delete" on its own is
+ * a word; "removes 2 services and 6 rostered people" is the decision.
+ */
+function EndingFooter({
+  kind,
+  impact,
+  saving,
+  onBack,
+  onConfirm
+}: {
+  kind: "cancel" | "delete"
+  impact: { slots: number; duties: number; runSheets: number } | null
+  saving: boolean
+  onBack: () => void
+  onConfirm: () => void
+}) {
+  const pieces = impact
+    ? [
+        impact.slots > 0 && `${impact.slots} service${impact.slots === 1 ? "" : "s"}`,
+        impact.duties > 0 && `${impact.duties} rostered ${impact.duties === 1 ? "person" : "people"}`,
+        impact.runSheets > 0 && `${impact.runSheets} run sheet${impact.runSheets === 1 ? "" : "s"}`
+      ].filter(Boolean)
+    : []
+
+  return (
+    <>
+      <p className="mr-auto flex items-start gap-2 pr-3 text-[12.5px] leading-snug text-muted">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--warning)]" />
+        <span>
+          {kind === "cancel" ? (
+            <>
+              Cancelling keeps the event on the calendar, marked so people can plan
+              around it.
+            </>
+          ) : (
+            <>
+              Deleting is permanent
+              {pieces.length > 0 && <> and takes {pieces.join(", ")} with it</>}.
+            </>
+          )}
+        </span>
+      </p>
+      <Button variant="ghost" onClick={onBack} disabled={saving}>
+        Back
+      </Button>
+      <Button
+        variant={kind === "delete" ? "danger" : "primary"}
+        loading={saving}
+        onClick={onConfirm}
+      >
+        {kind === "cancel" ? "Cancel this event" : "Delete permanently"}
+      </Button>
+    </>
   )
 }
 
@@ -586,6 +900,35 @@ function Stepper({
 
 function suggestionFor(index: number) {
   return SLOT_LABELS[index % SLOT_LABELS.length]
+}
+
+/** The wall-clock time of a stored instant, as the picker's "HH:mm". */
+function clockOf(iso: string) {
+  return format(new Date(iso), "HH:mm")
+}
+
+function draftsFrom(event: EditableEvent | undefined): SlotDraft[] {
+  if (!event) return []
+  return [...event.slots]
+    .sort((a, b) => a.slot_order - b.slot_order)
+    .map((s, i) => ({
+      id: String(i),
+      existingId: s.id,
+      label: s.label,
+      start: clockOf(s.start_time),
+      end: s.end_time ? clockOf(s.end_time) : "",
+      requirements: Object.fromEntries(
+        s.requirements.filter((r) => r.needed_count > 0).map((r) => [r.sub_team_id, r.needed_count])
+      ),
+      teamsOpen: false
+    }))
+}
+
+/** Zeroes and absences are the same answer, so both sides are compared on what is asked for. */
+function sameRequirements(a: Record<string, number>, b: Record<string, number>) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  for (const key of keys) if ((a[key] ?? 0) !== (b[key] ?? 0)) return false
+  return true
 }
 
 /**

@@ -25,6 +25,9 @@ export default async function CalendarPage() {
 
   const canSchedule = role ? hasPermission(role, "schedules", "create") : false
   const canEditEvents = role ? hasPermission(role, "events", "create") : false
+  // Cancelling and deleting are gated separately — a lead runs their own event, but
+  // standing one down takes every other team's roster with it.
+  const canDeleteEvents = role ? hasPermission(role, "events", "delete") : false
   const canCreateRunSheet = role ? hasPermission(role, "run_sheets", "create") : false
   const canPublish = role ? canPublishRoster(role) : false
   const allTeams = role ? seesAllTeams(role) : false
@@ -52,7 +55,7 @@ export default async function CalendarPage() {
     supabase
       .from("events")
       .select(
-        `id, title, event_type, start_time, end_time, status, location, recurrence_group_id,
+        `id, title, event_type, description, start_time, end_time, status, location, recurrence_group_id,
          event_sub_teams(sub_team_id),
          event_slots(id, label, slot_order, slot_date, start_time, end_time, notes,
                      event_slot_requirements(sub_team_id, needed_count))`
@@ -129,6 +132,7 @@ export default async function CalendarPage() {
         currentUserId={currentUser.id}
         canSchedule={canSchedule}
         canEditEvents={canEditEvents}
+        canDeleteEvents={canDeleteEvents}
         canCreateRunSheet={canCreateRunSheet}
         canPublish={canPublish}
         seesAllTeams={allTeams}
