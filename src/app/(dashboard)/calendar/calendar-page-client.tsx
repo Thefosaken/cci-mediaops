@@ -10,23 +10,29 @@ import {
   format,
   isSameDay,
   startOfMonth,
-  startOfWeek,
+  startOfWeek
 } from "date-fns"
 import {
   Calendar as CalendarIcon,
+  CalendarPlus,
+  Check,
   ChevronLeft,
   ChevronRight,
-  Plus,
-  Check,
+  Plus
 } from "lucide-react"
 
 import { cn } from "@/lib/utils/cn"
 import { useToast } from "@/lib/toast/toast-context"
 import { removeDuty, respondToDuty, setDutyRole } from "@/server/actions/duties"
+import { shortfall, coverageForSlot, toIsoDate, type DutyLike } from "@/lib/utils/rostering"
 import { resolveTeamColor, TEAM_COLORS, type TeamColor } from "./team-colors"
 import { MonthGrid, WeekGrid, type CalendarEntry } from "./calendar-grid"
-import { DayPopover } from "./day-popover"
-import { ScheduleModal } from "./schedule-modal"
+import { DayPopover, type PopoverEvent } from "./day-popover"
+import { ScheduleModal, type SchedulableSlot } from "./schedule-modal"
+import { EventModal } from "./event-modal"
+import { PublishBar } from "./publish-bar"
+import { CopyRosterModal, type CopyableSlot } from "./copy-roster-modal"
+import { RunSheetLauncher } from "./run-sheet-launcher"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Button, IconButton } from "@/components/ui/button"
@@ -39,9 +45,24 @@ import { Button, IconButton } from "@/components/ui/button"
  * multi-account overlay maps onto sub-teams — each team has a stable colour, admins
  * see every team at once, everyone else starts on their own.
  *
- * Three things live here: services (events), duties (who is rostered), and a link
- * through to a day's run sheet when one exists.
+ * Four things live here: services (events and the slots inside them), duties (who is
+ * rostered, and to which service), coverage (whether a service is actually staffed),
+ * and a link through to a slot's run sheet.
+ *
+ * Everything that mutates is a modal or a popover action; this component owns which
+ * one is open and nothing else. State that survives a refresh belongs on the server.
  */
+
+interface SlotRow {
+  id: string
+  label: string
+  slot_order: number
+  slot_date: string
+  start_time: string
+  end_time: string | null
+  notes: string | null
+  event_slot_requirements: { sub_team_id: string; needed_count: number }[]
+}
 
 interface EventRow {
   id: string
@@ -51,18 +72,23 @@ interface EventRow {
   end_time: string | null
   status: string
   location: string | null
+  recurrence_group_id: string | null
   event_sub_teams: { sub_team_id: string }[]
+  event_slots: SlotRow[]
 }
 
 interface DutyRow {
   id: string
   user_id: string
   sub_team_id: string
+  slot_id: string | null
+  slot_no: number | null
   duty_date: string
   event_id: string | null
   role_title: string | null
   call_time: string | null
   status: string
+  publish_state: string
   users: { id: string; full_name: string } | null
   sub_teams: { id: string; name: string; color: string | null } | null
 }
@@ -71,12 +97,16 @@ interface Props {
   events: EventRow[]
   subTeams: { id: string; name: string; color: string | null }[]
   duties: DutyRow[]
-  runSheets: { id: string; title: string; event_id: string | null; sheet_date: string | null }[]
+  runSheets: { id: string; title: string; event_id: string | null; slot_id: string | null; sheet_date: string | null }[]
+  templates: { id: string; title: string }[]
   users: { id: string; full_name: string }[]
   memberships: { user_id: string; sub_team_id: string }[]
   myTeamIds: string[]
   currentUserId: string
   canSchedule: boolean
+  canEditEvents: boolean
+  canCreateRunSheet: boolean
+  canPublish: boolean
   seesAllTeams: boolean
 }
 
@@ -87,12 +117,16 @@ export function CalendarPageClient({
   subTeams,
   duties,
   runSheets,
+  templates,
   users,
   memberships,
   myTeamIds,
   currentUserId,
   canSchedule,
-  seesAllTeams,
+  canEditEvents,
+  canCreateRunSheet,
+  canPublish,
+  seesAllTeams
 }: Props) {
   const router = useRouter()
   const toast = useToast()
@@ -102,7 +136,12 @@ export function CalendarPageClient({
   const [cursor, setCursor] = useState(() => new Date())
   // The anchor rect travels with the selection so the popover can position itself.
   const [selected, setSelected] = useState<{ date: Date; anchor: DOMRect } | null>(null)
-  const [scheduling, setScheduling] = useState(false)
+
+  /** Only one of these is ever open; each carries the context it needs to act. */
+  const [scheduling, setScheduling] = useState<{ slotId?: string } | null>(null)
+  const [creatingEvent, setCreatingEvent] = useState<Date | null>(null)
+  const [copyingTo, setCopyingTo] = useState<string | null>(null)
+  const [launchingSheet, setLaunchingSheet] = useState<string | null>(null)
 
   /**
    * Which team calendars are showing. Admins start with all of them overlaid — the
@@ -117,6 +156,8 @@ export function CalendarPageClient({
   const [showEvents, setShowEvents] = useState(true)
   /** The fastest answer to "when am I on duty" on a busy overlay. */
   const [onlyMine, setOnlyMine] = useState(false)
+  /** Drafts are noise while reading the published rota and the point while building it. */
+  const [showDrafts, setShowDrafts] = useState(true)
 
   const colorFor = useMemo(() => {
     const map = new Map<string, TeamColor>()
@@ -133,6 +174,29 @@ export function CalendarPageClient({
     return eachDayOfInterval({ start, end: addWeeks(start, 6) }).slice(0, 42)
   }, [cursor, view])
 
+  /** Every slot in the campus, flattened once and reused by four different surfaces. */
+  const allSlots = useMemo(
+    () =>
+      events.flatMap((e) =>
+        e.event_slots.map((s) => ({ ...s, event_id: e.id, event_title: e.title, event_status: e.status }))
+      ),
+    [events]
+  )
+
+  const dutiesBySlot = useMemo(() => {
+    const map = new Map<string, DutyRow[]>()
+    for (const d of duties) {
+      if (!d.slot_id) continue
+      map.set(d.slot_id, [...(map.get(d.slot_id) ?? []), d])
+    }
+    return map
+  }, [duties])
+
+  const visibleDuties = useMemo(
+    () => (showDrafts ? duties : duties.filter((d) => d.publish_state !== "draft")),
+    [duties, showDrafts]
+  )
+
   const entriesByDay = useMemo(() => {
     const map = new Map<string, CalendarEntry[]>()
     const push = (d: Date, e: CalendarEntry) => {
@@ -143,48 +207,111 @@ export function CalendarPageClient({
     if (showEvents && !onlyMine) {
       for (const ev of events) {
         const at = new Date(ev.start_time)
+        /**
+         * A service that is short-staffed says so on the month grid rather than only
+         * inside the popover. The whole reason to open a calendar in the week before
+         * Sunday is to find the gaps, and a gap you have to click to discover is one
+         * you find on Saturday night.
+         */
+        const gaps = ev.event_slots.reduce(
+          (sum, s) =>
+            sum +
+            shortfall(
+              coverageForSlot(
+                s.event_slot_requirements,
+                (dutiesBySlot.get(s.id) ?? []).map((d) => ({
+                  sub_team_id: d.sub_team_id,
+                  status: d.status
+                }))
+              )
+            ),
+          0
+        )
+
+        const services = ev.event_slots.length
         push(at, {
           id: `event-${ev.id}`,
           kind: "event",
           date: at,
           label: ev.title,
-          meta: format(at, "h:mm a"),
+          meta:
+            gaps > 0
+              ? `${format(at, "h:mm a")} · ${gaps} needed`
+              : services > 1
+                ? `${format(at, "h:mm a")} · ${services} services`
+                : format(at, "h:mm a"),
           color: null,
+          dimmed: ev.status === "cancelled"
         })
       }
     }
 
-    for (const d of duties) {
+    for (const d of visibleDuties) {
       if (!visibleTeams.has(d.sub_team_id)) continue
       const mine = d.user_id === currentUserId
       if (onlyMine && !mine) continue
 
       // Midday avoids any timezone drift pushing a date-only duty onto the wrong day.
       const at = new Date(`${d.duty_date}T12:00:00`)
+      const slot = d.slot_id ? allSlots.find((s) => s.id === d.slot_id) : null
+
       push(at, {
         id: `duty-${d.id}`,
         kind: "duty",
         date: at,
         label: d.users?.full_name ?? "Unassigned",
-        meta: d.sub_teams?.name,
+        // Which service matters more than which team on a day running several — the
+        // colour already carries the team.
+        meta: slot ? slot.label : d.sub_teams?.name,
         color: colorFor.get(d.sub_team_id) ?? null,
         mine,
-        dimmed: d.status === "declined",
+        dimmed: d.status === "declined" || d.publish_state === "draft"
       })
     }
 
     return map
-  }, [events, duties, visibleTeams, showEvents, onlyMine, currentUserId, colorFor])
+  }, [
+    events,
+    visibleDuties,
+    visibleTeams,
+    showEvents,
+    onlyMine,
+    currentUserId,
+    colorFor,
+    allSlots,
+    dutiesBySlot
+  ])
 
   const selectedDay = useMemo(() => {
     if (!selected) return null
     const day = selected.date
+    const iso = toIsoDate(day)
+
     return {
       date: day,
-      events: events.filter((e) => isSameDay(new Date(e.start_time), day)),
-      duties: duties.filter((d) => isSameDay(new Date(`${d.duty_date}T12:00:00`), day)),
+      events: events
+        .filter((e) => isSameDay(new Date(e.start_time), day))
+        .map(
+          (e): PopoverEvent => ({
+            id: e.id,
+            title: e.title,
+            start_time: e.start_time,
+            location: e.location,
+            status: e.status,
+            slots: [...e.event_slots]
+              .sort((a, b) => a.slot_order - b.slot_order)
+              .map((s) => ({
+                id: s.id,
+                label: s.label,
+                slot_order: s.slot_order,
+                start_time: s.start_time,
+                requirements: s.event_slot_requirements
+              }))
+          })
+        ),
+      duties: visibleDuties.filter((d) => d.duty_date === iso)
     }
-  }, [selected, events, duties])
+  }, [selected, events, visibleDuties])
 
   /** Teams this user may roster into. Leads and assistants stay inside their own. */
   const assignableTeams = useMemo(
@@ -209,25 +336,93 @@ export function CalendarPageClient({
 
     return users
       .map((u) => ({ ...u, teamIds: teamsByUser.get(u.id) ?? [] }))
-      .filter((u) =>
-        seesAllTeams ? true : u.teamIds.some((id) => assignableIds.has(id))
-      )
+      .filter((u) => (seesAllTeams ? true : u.teamIds.some((id) => assignableIds.has(id))))
   }, [users, memberships, assignableTeams, seesAllTeams])
 
   /**
-   * Days each person already has, keyed by person and team, so the modal can render
-   * them as taken rather than letting you pick a day that would be rejected.
+   * Every duty, published or draft, for clash checking.
+   *
+   * Deliberately not `visibleDuties`: hiding drafts is a reading preference, and a
+   * draft that would double-book somebody still will once published. Checking against
+   * what is on screen rather than what exists would let the toggle change what is
+   * possible.
    */
-  const existingByUser = useMemo(() => {
-    const map = new Map<string, Set<string>>()
-    for (const d of duties) {
-      const key = `${d.user_id}:${d.sub_team_id}`
-      const set = map.get(key) ?? new Set<string>()
-      set.add(d.duty_date)
-      map.set(key, set)
+  const clashSource = useMemo<DutyLike[]>(
+    () =>
+      duties.map((d) => ({
+        user_id: d.user_id,
+        duty_date: d.duty_date,
+        slot_no: d.slot_no,
+        sub_teams: d.sub_teams,
+        role_title: d.role_title
+      })),
+    [duties]
+  )
+
+  const schedulableSlots = useMemo<SchedulableSlot[]>(
+    () =>
+      allSlots
+        .filter((s) => s.event_status !== "cancelled")
+        .map((s) => ({
+          id: s.id,
+          label: s.label,
+          slot_order: s.slot_order,
+          slot_date: s.slot_date,
+          start_time: s.start_time,
+          event_id: s.event_id,
+          event_title: s.event_title
+        })),
+    [allSlots]
+  )
+
+  /** Slots with their rosters attached, for the copy-from picker's preview. */
+  const copyableSlots = useMemo<CopyableSlot[]>(
+    () =>
+      allSlots.map((s) => ({
+        id: s.id,
+        label: s.label,
+        slot_order: s.slot_order,
+        slot_date: s.slot_date,
+        event_id: s.event_id,
+        event_title: s.event_title,
+        duties: (dutiesBySlot.get(s.id) ?? []).map((d) => ({
+          user_id: d.user_id,
+          sub_team_id: d.sub_team_id,
+          full_name: d.users?.full_name ?? "Unknown",
+          role_title: d.role_title
+        }))
+      })),
+    [allSlots, dutiesBySlot]
+  )
+
+  /** The visible range — publishing acts on exactly what is on screen, nothing more. */
+  const windowStart = view === "week" ? startOfWeek(cursor) : startOfWeek(startOfMonth(cursor))
+  const windowEnd = view === "week" ? endOfWeek(cursor) : days[days.length - 1]
+
+  const drafts = useMemo(() => {
+    const from = toIsoDate(windowStart)
+    const to = toIsoDate(windowEnd)
+    const inWindow = duties.filter(
+      (d) => d.publish_state === "draft" && d.duty_date >= from && d.duty_date <= to
+    )
+
+    const byTeam: Record<string, number> = {}
+    for (const d of inWindow) byTeam[d.sub_team_id] = (byTeam[d.sub_team_id] ?? 0) + 1
+
+    return {
+      total: inWindow.length,
+      byTeam,
+      peopleCount: new Set(inWindow.map((d) => d.user_id)).size
     }
+  }, [duties, windowStart, windowEnd])
+
+  const runSheetForSlot = useMemo(() => {
+    const map = new Map<string, { id: string; title: string }>()
+    for (const r of runSheets) if (r.slot_id) map.set(r.slot_id, { id: r.id, title: r.title })
     return map
-  }, [duties])
+  }, [runSheets])
+
+  const slotById = useMemo(() => new Map(allSlots.map((s) => [s.id, s])), [allSlots])
 
   const title =
     view === "month"
@@ -237,6 +432,22 @@ export function CalendarPageClient({
   const step = (dir: -1 | 1) =>
     setCursor((c) => (view === "month" ? addMonths(c, dir) : addWeeks(c, dir)))
 
+  /** Every mutation ends the same way: report, then refetch from the server. */
+  const run = (action: () => Promise<{ error?: string }>) =>
+    startTransition(async () => {
+      const res = await action()
+      if (res.error) toast.error(res.error)
+      else router.refresh()
+    })
+
+  const settle = (message: string) => {
+    toast.success(message)
+    router.refresh()
+  }
+
+  const copyTarget = copyingTo ? copyableSlots.find((s) => s.id === copyingTo) : null
+  const launchTarget = launchingSheet ? slotById.get(launchingSheet) : null
+
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
       <PageHeader
@@ -244,12 +455,32 @@ export function CalendarPageClient({
         description="Services, duties and who is on when"
         icon={<CalendarIcon />}
         actions={
-          canSchedule ? (
-            <Button size="sm" onClick={() => setScheduling(true)}>
-              <Plus className="size-4" /> Schedule people
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {canEditEvents && (
+              <Button size="sm" variant="secondary" onClick={() => setCreatingEvent(new Date())}>
+                <CalendarPlus className="size-4" /> New event
+              </Button>
+            )}
+            {canSchedule && (
+              <Button size="sm" onClick={() => setScheduling({})}>
+                <Plus className="size-4" /> Schedule people
+              </Button>
+            )}
+          </div>
         }
+      />
+
+      <PublishBar
+        drafts={drafts}
+        teams={assignableTeams}
+        colorFor={colorFor}
+        windowStart={windowStart}
+        windowEnd={windowEnd}
+        canPublish={canPublish}
+        showingDrafts={showDrafts}
+        onToggleShowDrafts={() => setShowDrafts((v) => !v)}
+        onDone={settle}
+        onError={toast.error}
       />
 
       {/* ── Toolbar ───────────────────────────────────────────── */}
@@ -266,9 +497,7 @@ export function CalendarPageClient({
           </Button>
         </div>
 
-        <h2 className="min-w-0 text-[15px] font-semibold tracking-tight text-foreground">
-          {title}
-        </h2>
+        <h2 className="min-w-0 text-[15px] font-semibold tracking-tight text-foreground">{title}</h2>
 
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -368,42 +597,37 @@ export function CalendarPageClient({
           anchor={selected.anchor}
           events={selectedDay.events}
           duties={selectedDay.duties}
-          runSheetFor={(eventId) =>
-            runSheets.find(
-              (r) =>
-                r.event_id === eventId ||
-                (r.sheet_date && isSameDay(new Date(r.sheet_date), selectedDay.date))
-            )
-          }
+          teams={subTeams}
+          runSheetFor={(slotId) => runSheetForSlot.get(slotId)}
           colorFor={colorFor}
           currentUserId={currentUserId}
           canSchedule={canSchedule}
+          canEditEvents={canEditEvents}
+          canCreateRunSheet={canCreateRunSheet}
           onClose={() => setSelected(null)}
-          onSchedule={() => {
+          onSchedule={(slotId) => {
             setSelected(null)
-            setScheduling(true)
+            setScheduling({ slotId })
           }}
-          onRespond={(id, status) =>
-            startTransition(async () => {
-              const r = await respondToDuty(id, status)
-              if (r.error) toast.error(r.error)
-              else router.refresh()
-            })
-          }
-          onSetRole={(id, role) =>
-            startTransition(async () => {
-              const r = await setDutyRole(id, role)
-              if (r.error) toast.error(r.error)
-              else router.refresh()
-            })
-          }
-          onRemove={(id) =>
-            startTransition(async () => {
-              const r = await removeDuty(id)
-              if (r.error) toast.error(r.error)
-              else router.refresh()
-            })
-          }
+          onCreateEvent={() => {
+            const day = selectedDay.date
+            setSelected(null)
+            setCreatingEvent(day)
+          }}
+          // Editing an existing event reuses the run sheet route's detail surface
+          // rather than a second composer — one place to change an event, not two.
+          onEditEvent={(eventId) => router.push(`/calendar?id=${eventId}`)}
+          onCreateRunSheet={(slotId) => {
+            setSelected(null)
+            setLaunchingSheet(slotId)
+          }}
+          onCopyRoster={(slotId) => {
+            setSelected(null)
+            setCopyingTo(slotId)
+          }}
+          onRespond={(id, status) => run(() => respondToDuty(id, status))}
+          onSetRole={(id, role) => run(() => setDutyRole(id, role))}
+          onRemove={(id) => run(() => removeDuty(id))}
         />
       )}
 
@@ -413,12 +637,64 @@ export function CalendarPageClient({
           people={schedulablePeople}
           teams={assignableTeams}
           colorFor={colorFor}
-          existingByUser={existingByUser}
-          onClose={() => setScheduling(false)}
+          slots={schedulableSlots}
+          existingDuties={clashSource}
+          canPublish={canPublish}
+          onClose={() => setScheduling(null)}
           onDone={(msg) => {
-            setScheduling(false)
-            toast.success(msg)
-            router.refresh()
+            setScheduling(null)
+            settle(msg)
+          }}
+          onError={toast.error}
+        />
+      )}
+
+      {creatingEvent && canEditEvents && (
+        <EventModal
+          initialDate={creatingEvent}
+          teams={subTeams}
+          colorFor={colorFor}
+          onClose={() => setCreatingEvent(null)}
+          onDone={(msg) => {
+            setCreatingEvent(null)
+            settle(msg)
+          }}
+          onError={toast.error}
+        />
+      )}
+
+      {copyTarget && canSchedule && (
+        <CopyRosterModal
+          target={copyTarget}
+          candidates={copyableSlots}
+          teams={subTeams}
+          colorFor={colorFor}
+          canPublish={canPublish}
+          onClose={() => setCopyingTo(null)}
+          onDone={(msg) => {
+            setCopyingTo(null)
+            settle(msg)
+          }}
+          onError={toast.error}
+        />
+      )}
+
+      {launchTarget && canCreateRunSheet && (
+        <RunSheetLauncher
+          slot={{
+            id: launchTarget.id,
+            label: launchTarget.label,
+            slot_date: launchTarget.slot_date,
+            event_title: launchTarget.event_title
+          }}
+          templates={templates}
+          onClose={() => setLaunchingSheet(null)}
+          onCreated={(runSheetId, existed) => {
+            setLaunchingSheet(null)
+            // An existing sheet is opened rather than reported as a conflict — the
+            // person clicking wanted to get to it either way.
+            if (existed) toast.success("That service already had a run sheet — opening it")
+            router.push(`/run-sheets/${runSheetId}`)
           }}
           onError={toast.error}
         />
@@ -433,7 +709,7 @@ function Toggle({
   label,
   checked,
   onChange,
-  swatch,
+  swatch
 }: {
   label: string
   checked: boolean
@@ -465,4 +741,3 @@ function Toggle({
     </button>
   )
 }
-

@@ -288,6 +288,62 @@ export async function setCue(sessionId: string, subTeamId: string, cueText: stri
   return { success: true }
 }
 
+/**
+ * The service a sheet belongs to, and who is rostered on it.
+ *
+ * Rostering happens weeks before anybody writes the running order, so by the time a
+ * sheet exists the answer to "who is on this service" is already known. Re-typing it
+ * per session is not just tedious — it is where the sheet and the rota drift apart,
+ * and then two documents disagree about who is turning up.
+ *
+ * Only published duties count. A draft roster is still being argued over, and pulling
+ * one into a run sheet would make it real by the back door.
+ */
+async function rosterForSheet(runSheetId: string) {
+  const supabase = await createClient()
+
+  const { data: sheet } = await supabase
+    .from("run_sheets")
+    .select("slot_id")
+    .eq("id", runSheetId)
+    .maybeSingle()
+
+  if (!sheet?.slot_id) return []
+
+  const { data } = await supabase
+    .from("duty_assignments")
+    .select("user_id, sub_team_id, role_title, call_time, status")
+    .eq("slot_id", sheet.slot_id)
+    .eq("publish_state", "published")
+
+  // A declined duty names somebody who is not coming. Carrying them onto the sheet
+  // would show the service as staffed by a person who already said no.
+  return (data ?? []).filter((d) => d.status !== "declined" && d.status !== "swapped_out")
+}
+
+/** The run sheet a session sits on. */
+async function sheetIdForSession(sessionId: string): Promise<string | null> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("run_sheet_sessions")
+    .select("run_sheet_id")
+    .eq("id", sessionId)
+    .maybeSingle()
+  return data?.run_sheet_id ?? null
+}
+
+/**
+ * Add one person to a session.
+ *
+ * When the person is already rostered for this sheet's service, their team, role, call
+ * time and confirmation come across on their own. The caller cannot supply a
+ * confirmation: it is read from the duty, so the only way a session member starts
+ * `confirmed` is that the person actually accepted the service. Anything else would let
+ * a sheet claim an acceptance nobody gave.
+ *
+ * Explicitly passed values still win, so a lead can say "on this session she's on
+ * Camera 2" without the duty's role overwriting it.
+ */
 export async function addSessionMember(input: {
   sessionId: string
   userId?: string
@@ -299,12 +355,23 @@ export async function addSessionMember(input: {
   if (!guard.ok) return { error: guard.error }
 
   const supabase = await createClient()
+
+  let duty: Awaited<ReturnType<typeof rosterForSheet>>[number] | undefined
+  if (input.userId) {
+    const sheetId = await sheetIdForSession(input.sessionId)
+    if (sheetId) {
+      const roster = await rosterForSheet(sheetId)
+      duty = roster.find((d) => d.user_id === input.userId)
+    }
+  }
+
   const { error } = await supabase.from("run_sheet_session_members").insert({
     session_id: input.sessionId,
     user_id: input.userId ?? null,
-    sub_team_id: input.subTeamId ?? null,
-    role_title: input.roleTitle ?? null,
+    sub_team_id: input.subTeamId ?? duty?.sub_team_id ?? null,
+    role_title: input.roleTitle ?? duty?.role_title ?? null,
     call_time: input.callTime ?? null,
+    confirmation_status: duty?.status === "confirmed" ? "confirmed" : "pending"
   })
 
   if (error) {
@@ -313,7 +380,56 @@ export async function addSessionMember(input: {
   }
 
   revalidatePath("/run-sheets")
-  return { success: true }
+  return { success: true, fromRoster: Boolean(duty) }
+}
+
+/**
+ * Put everyone rostered for the service onto one session.
+ *
+ * The bulk form of the above, and the reason the two systems are worth connecting at
+ * all: a lead who has already built the rota should not have to rebuild it a session
+ * at a time. People already on the session are skipped rather than erroring, so this
+ * tops up a partly-filled session instead of refusing to run twice.
+ */
+export async function fillSessionFromRoster(sessionId: string) {
+  const guard = await requireEdit()
+  if (!guard.ok) return { error: guard.error }
+
+  const sheetId = await sheetIdForSession(sessionId)
+  if (!sheetId) return { error: "That session no longer exists" }
+
+  const roster = await rosterForSheet(sheetId)
+  if (roster.length === 0) {
+    return { error: "Nobody is rostered for this service yet — schedule people on the calendar first" }
+  }
+
+  const supabase = await createClient()
+  const { data: already } = await supabase
+    .from("run_sheet_session_members")
+    .select("user_id")
+    .eq("session_id", sessionId)
+
+  const present = new Set((already ?? []).map((m) => m.user_id).filter(Boolean))
+  const missing = roster.filter((d) => !present.has(d.user_id))
+
+  if (missing.length === 0) return { success: true, added: 0, alreadyOn: roster.length }
+
+  const { error } = await supabase.from("run_sheet_session_members").insert(
+    missing.map((d) => ({
+      session_id: sessionId,
+      user_id: d.user_id,
+      sub_team_id: d.sub_team_id,
+      role_title: d.role_title,
+      call_time: d.call_time,
+      // Carried, not assumed — see addSessionMember.
+      confirmation_status: d.status === "confirmed" ? "confirmed" : "pending"
+    }))
+  )
+
+  if (error) return { error: error.message }
+
+  revalidatePath("/run-sheets")
+  return { success: true, added: missing.length, alreadyOn: present.size }
 }
 
 export async function removeSessionMember(memberId: string) {

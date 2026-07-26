@@ -12,14 +12,92 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 })
 
-export const eventSchema = z.object({
-  title: z.string().min(2, "Title is required"),
-  eventType: z.string().min(1, "Event type is required"),
-  description: z.string().optional(),
-  location: z.string().optional(),
-  startTime: z.string().min(1, "Start time is required"),
-  endTime: z.string().optional(),
-  requiredSubTeams: z.array(z.string()).optional(),
+/**
+ * Hard ceiling on services in a single day, mirrored by a check constraint and a
+ * per-day unique index in migration 00022.
+ *
+ * The limit is the day's, not one event's: position 1 means "the day's first service"
+ * whichever event owns it, so the clash rule can compare positions across a date. An
+ * event added to a day that already has services takes the positions left over, which
+ * the server allocates — `slotOrder` below is only the order within one submit.
+ */
+export const MAX_SLOTS_PER_EVENT = 4
+
+/**
+ * One service within an event.
+ *
+ * `slotDate` travels separately from `startTime` on purpose — the client knows which
+ * calendar day the user meant, and deriving it server-side from a timestamptz would
+ * shift it across midnight for anyone in another timezone.
+ */
+export const eventSlotSchema = z
+  .object({
+    label: z.string().min(1, "Give the service a name"),
+    slotOrder: z.number().int().min(1).max(MAX_SLOTS_PER_EVENT),
+    slotDate: z.string().min(1, "Date is required"),
+    startTime: z.string().min(1, "Start time is required"),
+    endTime: z.string().optional(),
+    notes: z.string().optional(),
+    /** Teams needed, and how many of each — the denominator for coverage. */
+    requirements: z
+      .array(
+        z.object({
+          subTeamId: z.string().min(1),
+          neededCount: z.number().int().min(0).max(50)
+        })
+      )
+      .optional()
+  })
+  .refine((s) => !s.endTime || new Date(s.endTime) > new Date(s.startTime), {
+    message: "Ends before it starts",
+    path: ["endTime"]
+  })
+
+/**
+ * Repeat rule. Occurrences are materialised as real event rows sharing a
+ * `recurrence_group_id`, so moving one week never disturbs the rest.
+ */
+export const eventRecurrenceSchema = z.object({
+  frequency: z.enum(["weekly", "fortnightly", "monthly"]),
+  /** Capped so a mis-typed number cannot fill the calendar for a decade. */
+  count: z.number().int().min(2).max(52)
+})
+
+export const eventSchema = z
+  .object({
+    title: z.string().min(2, "Title is required"),
+    eventType: z.string().min(1, "Event type is required"),
+    description: z.string().optional(),
+    location: z.string().optional(),
+    startTime: z.string().min(1, "Start time is required"),
+    endTime: z.string().optional(),
+    requiredSubTeams: z.array(z.string()).optional(),
+    slots: z.array(eventSlotSchema).max(MAX_SLOTS_PER_EVENT).optional(),
+    recurrence: eventRecurrenceSchema.optional()
+  })
+  .refine(
+    (e) => {
+      const orders = (e.slots ?? []).map((s) => s.slotOrder)
+      return new Set(orders).size === orders.length
+    },
+    { message: "Two services share the same position", path: ["slots"] }
+  )
+  .refine((e) => !e.endTime || new Date(e.endTime) > new Date(e.startTime), {
+    message: "Ends before it starts",
+    path: ["endTime"]
+  })
+
+/** Rostering one person onto one slot, or onto a whole day when `slotId` is absent. */
+export const dutyAssignmentSchema = z.object({
+  userId: z.string().min(1, "Pick someone"),
+  subTeamId: z.string().min(1, "Pick a team"),
+  slotId: z.string().optional(),
+  dutyDate: z.string().min(1, "Pick a date"),
+  eventId: z.string().optional(),
+  roleTitle: z.string().optional(),
+  callTime: z.string().optional(),
+  /** Drafts are invisible to the assignee until the batch is published. */
+  asDraft: z.boolean().default(false)
 })
 
 export const requestSchema = z.object({
@@ -146,6 +224,9 @@ export type PublicRequestInput = z.infer<typeof publicRequestSchema>
 export type SignUpInput = z.infer<typeof signUpSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type EventInput = z.infer<typeof eventSchema>
+export type EventSlotInput = z.infer<typeof eventSlotSchema>
+export type EventRecurrenceInput = z.infer<typeof eventRecurrenceSchema>
+export type DutyAssignmentInput = z.infer<typeof dutyAssignmentSchema>
 export type RequestInput = z.infer<typeof requestSchema>
 export type TaskInput = z.infer<typeof taskSchema>
 export type RunSheetInput = z.infer<typeof runSheetSchema>

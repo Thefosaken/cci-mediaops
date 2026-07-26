@@ -66,10 +66,17 @@ export async function getMyAssignments(userId: string, limit = 5): Promise<MyAss
       .order("created_at", { ascending: false })
       .limit(limit),
     // Past duties are history, not something to action, so only today onward.
+    //
+    // Drafts are excluded: a roster still being built is not yet the assignee's to see,
+    // and surfacing one here would tell somebody about a Sunday that may still be
+    // rewritten — exactly what publishing exists to prevent.
     supabase
       .from("duty_assignments")
-      .select("id, role_title, call_time, duty_date, status, sub_teams:sub_team_id(name), events:event_id(title)")
+      .select(
+        "id, role_title, call_time, duty_date, status, sub_teams:sub_team_id(name), events:event_id(title), event_slots:slot_id(label)"
+      )
       .eq("user_id", userId)
+      .eq("publish_state", "published")
       .in("status", ["scheduled", "confirmed"])
       .gte("duty_date", today)
       .order("duty_date")
@@ -95,6 +102,7 @@ export async function getMyAssignments(userId: string, limit = 5): Promise<MyAss
     status: string
     sub_teams: { name: string } | null
     events: { title: string } | null
+    event_slots: { label: string } | null
   }
 
   const sessions: MyAssignment[] = ((sessionRows ?? []) as unknown as SessionRow[]).map((r) => ({
@@ -115,7 +123,11 @@ export async function getMyAssignments(userId: string, limit = 5): Promise<MyAss
     title: r.sub_teams?.name ?? "Duty",
     // Midday, so rendering in a local timezone can't shift a date-only duty a day.
     when: `${r.duty_date}T12:00:00`,
-    context: r.events?.title ?? "Scheduled duty",
+    // Which service, when the day has more than one. On a Sunday running two services
+    // "Sunday Service" alone does not tell somebody when to turn up.
+    context: r.event_slots?.label
+      ? `${r.events?.title ?? "Service"} — ${r.event_slots.label}`
+      : (r.events?.title ?? "Scheduled duty"),
   }))
 
   // Soonest first, so the next thing you're on is at the top whichever kind it is.

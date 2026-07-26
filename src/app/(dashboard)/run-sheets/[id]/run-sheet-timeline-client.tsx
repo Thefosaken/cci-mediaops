@@ -19,6 +19,7 @@ import {
   deleteSession,
   setCue,
   addSessionMember,
+  fillSessionFromRoster,
   removeSessionMember,
   setSessionStatus,
   setRunSheetStatus,
@@ -79,12 +80,26 @@ interface Props {
     status: string
     sheet_date: string | null
     events: { id: string; title: string; start_time: string } | null
+    /** The service this sheet is for, when it was started from one. */
+    event_slots: { id: string; label: string; slot_date: string } | null
   }
   sessions: SessionRow[]
   subTeams: { id: string; name: string }[]
   users: { id: string; full_name: string }[]
+  /** Published duties for the service this sheet belongs to. Empty for a standalone sheet. */
+  roster: RosterEntry[]
   canEdit: boolean
   canDelete: boolean
+}
+
+/** Someone rostered for this sheet's service, already carrying their team and job. */
+export interface RosterEntry {
+  userId: string
+  fullName: string
+  subTeamId: string | null
+  subTeamName: string | null
+  roleTitle: string | null
+  confirmed: boolean
 }
 
 export function RunSheetTimelineClient({
@@ -92,6 +107,7 @@ export function RunSheetTimelineClient({
   sessions,
   subTeams,
   users,
+  roster,
   canEdit,
   canDelete,
 }: Props) {
@@ -257,9 +273,17 @@ export function RunSheetTimelineClient({
     <div className="flex h-[calc(100dvh-var(--app-header-h,57px))] flex-col">
       <PageHeader
         title={sheet.title}
+        // Which service, not just which event. A Sunday running two services has two
+        // sheets against one event title, and "Sunday Service" on both is how the wrong
+        // one ends up open on the desk.
         description={
-          sheet.events?.title ??
-          (sheet.sheet_date ? format(new Date(sheet.sheet_date), "EEEE d MMMM yyyy") : "Standalone run sheet")
+          sheet.events?.title
+            ? sheet.event_slots?.label
+              ? `${sheet.events.title} — ${sheet.event_slots.label}`
+              : sheet.events.title
+            : sheet.sheet_date
+              ? format(new Date(sheet.sheet_date), "EEEE d MMMM yyyy")
+              : "Standalone run sheet"
         }
         actions={
           canEdit ? (
@@ -430,6 +454,7 @@ export function RunSheetTimelineClient({
           session={openSession}
           subTeams={subTeams}
           users={users}
+          roster={roster}
           canEdit={canEdit}
           busy={pending}
           onClose={() => setOpenSessionId(null)}
@@ -444,6 +469,21 @@ export function RunSheetTimelineClient({
           }
           onCue={(subTeamId, text) => guard(() => setCue(openSession.id, subTeamId, text))}
           onAddMember={(userId) => guard(() => addSessionMember({ sessionId: openSession.id, userId }))}
+          onFillFromRoster={() =>
+            guard(async () => {
+              const r = await fillSessionFromRoster(openSession.id)
+              // Saying "everyone is already on" beats a silent no-op that reads as a
+              // broken button.
+              if (!r.error && r.added === 0) {
+                toast.success("Everyone rostered is already on this session")
+              } else if (!r.error) {
+                toast.success(
+                  `Added ${r.added} ${r.added === 1 ? "person" : "people"} from the roster`
+                )
+              }
+              return r
+            })
+          }
           onRemoveMember={(memberId) => guard(() => removeSessionMember(memberId))}
         />
       )}
@@ -651,6 +691,7 @@ function SessionPanel({
   session,
   subTeams,
   users,
+  roster,
   canEdit,
   busy,
   onClose,
@@ -659,11 +700,13 @@ function SessionPanel({
   onDelete,
   onCue,
   onAddMember,
+  onFillFromRoster,
   onRemoveMember,
 }: {
   session: SessionRow
   subTeams: { id: string; name: string }[]
   users: { id: string; full_name: string }[]
+  roster: RosterEntry[]
   canEdit: boolean
   busy: boolean
   onClose: () => void
@@ -672,6 +715,7 @@ function SessionPanel({
   onDelete: () => void
   onCue: (subTeamId: string, text: string) => void
   onAddMember: (userId: string) => void
+  onFillFromRoster: () => void
   onRemoveMember: (memberId: string) => void
 }) {
   // Only the time of day is editable — a session belongs to its sheet's date, so a
@@ -685,8 +729,33 @@ function SessionPanel({
   const durationMins = Math.round((+end - +start) / 60_000)
 
   const assignedIds = new Set(session.run_sheet_session_members.map((m) => m.user_id))
-  const available = users.filter((u) => !assignedIds.has(u.id))
   const filledCues = session.run_sheet_session_cues.filter((c) => c.cue_text?.trim()).length
+
+  /**
+   * The picker in two groups, rostered first.
+   *
+   * A flat list of the whole campus asks the lead to remember who is on this service —
+   * which they already told the system weeks ago. Putting those people at the top,
+   * labelled with the team and job they were given, turns a recall problem into a
+   * recognition one. Everyone else stays reachable underneath, because a run sheet
+   * sometimes needs somebody the rota never mentioned.
+   */
+  const rosterById = new Map(roster.map((r) => [r.userId, r]))
+  const rosterAvailable = roster.filter((r) => !assignedIds.has(r.userId))
+  const othersAvailable = users.filter((u) => !assignedIds.has(u.id) && !rosterById.has(u.id))
+
+  const memberOptions = [
+    ...rosterAvailable.map((r) => ({
+      value: r.userId,
+      label: r.fullName,
+      description: [r.subTeamName, r.roleTitle].filter(Boolean).join(" · ") || "Rostered"
+    })),
+    ...othersAvailable.map((u) => ({
+      value: u.id,
+      label: u.full_name,
+      description: roster.length > 0 ? "Not rostered for this service" : undefined
+    }))
+  ]
 
   return (
     <SidePanel
@@ -859,7 +928,24 @@ function SessionPanel({
             </ul>
           )}
 
-          {canEdit && available.length > 0 && (
+          {/* The rota already answered this question — one click to accept its answer,
+              rather than re-entering it name by name. Offered only when there is
+              something to add, so it never sits there doing nothing. */}
+          {canEdit && rosterAvailable.length > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              fullWidth
+              className="mt-3"
+              loading={busy}
+              onClick={onFillFromRoster}
+            >
+              <Users className="size-3.5" />
+              Add the {rosterAvailable.length} rostered for this service
+            </Button>
+          )}
+
+          {canEdit && memberOptions.length > 0 && (
             // mt-3 separates the control from the list above it. Select's trigger is
             // h-10 rounded-lg, so the button uses size="lg" to match it exactly rather
             // than sitting 8px short.
@@ -868,7 +954,8 @@ function SessionPanel({
                 value={addingMember}
                 onChange={(v) => setAddingMember(v)}
                 placeholder="Add member…"
-                options={available.map((u) => ({ value: u.id, label: u.full_name }))}
+                searchable
+                options={memberOptions}
               />
               <Button
                 size="lg"
@@ -883,6 +970,16 @@ function SessionPanel({
                 Add
               </Button>
             </div>
+          )}
+
+          {/* A sheet with no service behind it is not broken — it is a standalone
+              sheet, and saying so stops a lead hunting for a roster that was never
+              going to exist. */}
+          {canEdit && roster.length === 0 && (
+            <p className="mt-2.5 text-[11.5px] leading-relaxed text-muted">
+              This sheet isn&apos;t tied to a scheduled service, so there is no roster to pull
+              from. Start a sheet from a service on the calendar to carry its people across.
+            </p>
           )}
         </section>
 

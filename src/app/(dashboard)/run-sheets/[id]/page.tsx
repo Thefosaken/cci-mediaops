@@ -39,7 +39,7 @@ export default async function RunSheetDetailPage({
     await Promise.all([
       supabase
         .from("run_sheets")
-        .select("*, events(id, title, start_time)")
+        .select("*, events(id, title, start_time), event_slots:slot_id(id, label, slot_date)")
         .eq("id", id)
         .maybeSingle(),
       supabase
@@ -56,10 +56,53 @@ export default async function RunSheetDetailPage({
 
   if (!sheet) notFound()
 
+  /**
+   * Who is rostered for the service this sheet belongs to.
+   *
+   * Rostering happens weeks before anyone writes the running order, so by the time a
+   * sheet exists this is already settled. Surfacing it in the member picker is what
+   * stops the sheet and the rota drifting into two documents that disagree about who
+   * is turning up.
+   *
+   * Only published duties: a draft roster is still being argued over, and listing one
+   * here would leak it to anyone who can open the sheet.
+   */
+  const slotId = (sheet as unknown as { slot_id?: string | null }).slot_id ?? null
+
+  const { data: rosterRows } = slotId
+    ? await supabase
+        .from("duty_assignments")
+        .select("user_id, sub_team_id, role_title, status, users:user_id(id, full_name), sub_teams:sub_team_id(id, name)")
+        .eq("slot_id", slotId)
+        .eq("publish_state", "published")
+        .in("status", ["scheduled", "confirmed"])
+    : { data: null }
+
+  type RosterJoin = {
+    user_id: string
+    sub_team_id: string | null
+    role_title: string | null
+    status: string
+    users: { id: string; full_name: string } | null
+    sub_teams: { id: string; name: string } | null
+  }
+
+  const roster = ((rosterRows ?? []) as unknown as RosterJoin[])
+    .filter((r) => r.users)
+    .map((r) => ({
+      userId: r.user_id,
+      fullName: r.users!.full_name,
+      subTeamId: r.sub_team_id,
+      subTeamName: r.sub_teams?.name ?? null,
+      roleTitle: r.role_title,
+      confirmed: r.status === "confirmed"
+    }))
+
   return (
     <Suspense>
       <RunSheetTimelineClient
         sheet={sheet as unknown as Parameters<typeof RunSheetTimelineClient>[0]["sheet"]}
+        roster={roster}
         sessions={
           (sessions ?? []) as unknown as Parameters<
             typeof RunSheetTimelineClient

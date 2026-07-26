@@ -26,6 +26,7 @@ export {
   setRunSheetStatus,
   setCue,
   addSessionMember,
+  fillSessionFromRoster,
   removeSessionMember,
   respondToAssignment,
   markAttendance,

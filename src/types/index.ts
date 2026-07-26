@@ -294,7 +294,53 @@ export interface RunSheetSessionMember {
   updated_at: string
 }
 
+/**
+ * One service inside a day's event — "First Service", "Second Service".
+ *
+ * The rung between a day and a run sheet session. Capped at four per event by the
+ * database (`slot_order between 1 and 4` plus a unique index), so the ceiling holds
+ * even when two leads add a slot at the same moment.
+ *
+ * `slot_date` is stored rather than read off `start_time`: a timestamptz renders to a
+ * different calendar day either side of midnight depending on the reader's timezone,
+ * and which Sunday a roster belongs to must not move with the reader.
+ */
+export interface EventSlot {
+  id: string
+  event_id: string
+  campus_id: string
+  label: string
+  /** 1–4. Display order, and the identity the clash rule is enforced against. */
+  slot_order: number
+  /** ISO date (no time). */
+  slot_date: string
+  start_time: string
+  end_time: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** How many people a slot needs from one team — the denominator in "Camera 1 of 2". */
+export interface EventSlotRequirement {
+  id: string
+  slot_id: string
+  sub_team_id: string
+  needed_count: number
+  created_at: string
+}
+
 export type DutyStatus = "scheduled" | "confirmed" | "declined" | "swapped_out"
+
+/**
+ * Whether a duty is visible to the person it names.
+ *
+ * A month's roster is built over several sittings and is wrong for most of that time.
+ * Draft duties are invisible to the assignee and send no notification; publishing
+ * makes the whole batch real at once, so a person hears about their month in a single
+ * message rather than one per Sunday.
+ */
+export type DutyPublishState = "draft" | "published"
 
 /**
  * Someone rostered to a team for a day.
@@ -312,14 +358,33 @@ export interface DutyAssignment {
   /** ISO date (no time) — the day being rostered. */
   duty_date: string
   event_id: string | null
+  /**
+   * Which service. Null means the duty covers the whole day, which the clash rule
+   * treats as occupying every slot — so an all-day duty blocks all four.
+   */
+  slot_id: string | null
+  /** Mirrors the slot's `slot_order`; maintained by trigger, never written directly. */
+  slot_no: number | null
   role_title: string | null
   call_time: string | null
   status: DutyStatus
+  publish_state: DutyPublishState
+  published_at: string | null
   notes: string | null
   created_by: string | null
   created_at: string
   updated_at: string
 }
+
+/**
+ * Why a person cannot take a given slot. Resolved before the roster is written, so
+ * the picker can render an unavailable day as inert rather than letting someone
+ * choose it and meet a database error.
+ */
+export type ClashReason =
+  | { kind: "same_slot"; teamName: string; roleTitle: string | null }
+  | { kind: "all_day"; teamName: string }
+  | { kind: "blocked_by_all_day"; teamName: string }
 
 export interface EquipmentItem {
   id: string
