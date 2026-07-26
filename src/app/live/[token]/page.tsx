@@ -124,13 +124,23 @@ export default async function LiveRunSheetPage({
     )
   }
 
-  // Best-effort: a failure to count a view must never stop the sheet rendering, so it
-  // is not awaited for its result and its rejection is swallowed.
-  const callRpc = admin.rpc as unknown as (
-    fn: string,
-    args: Record<string, string>
-  ) => Promise<unknown>
-  await callRpc("record_share_link_view", { p_token: token }).catch(() => undefined)
+  /**
+   * Best-effort view count. A failure here must never stop the sheet rendering — the
+   * screen at the desk matters, the counter does not.
+   *
+   * The cast is applied to the client rather than to `rpc` itself. Pulling the method
+   * off the object to cast it detaches it from its receiver, and supabase-js's `rpc`
+   * reaches for `this.rest` — so an unbound call throws before it ever hits the
+   * network. Keeping it a method call is what makes this work.
+   */
+  const rpcClient = admin as unknown as {
+    rpc: (fn: string, args: Record<string, string>) => Promise<{ error: unknown }>
+  }
+  try {
+    await rpcClient.rpc("record_share_link_view", { p_token: token })
+  } catch {
+    // Counting is not worth a 500.
+  }
 
   const subtitle = [sheet.events?.title, sheet.event_slots?.label].filter(Boolean).join(" — ")
 
