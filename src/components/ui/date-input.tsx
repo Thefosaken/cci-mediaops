@@ -6,6 +6,23 @@ interface DateInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   type?: "date" | "datetime-local" | "time"
 }
 
+/**
+ * A native date or time field, dressed to match the picker controls.
+ *
+ * Sized `h-10 rounded-lg bg-canvas` rather than following Input's `h-9 rounded-md`,
+ * because this sits beside Select and DatePicker — the picker family — and a control
+ * that is four pixels short of the one next to it reads as a mistake.
+ *
+ * The browser draws its own calendar/clock glyph inside the field. It cannot be
+ * restyled, and in a dark theme it renders near-invisible against the surface, which
+ * is how a date field ends up looking like it has no affordance at all. So the native
+ * indicator is made transparent and stretched over the whole control: the field opens
+ * the picker wherever you click it, and the only glyph anyone sees is the lucide icon
+ * on the right, which does follow the theme.
+ *
+ * For picking a date, prefer DatePicker — it is the designed calendar used across the
+ * app. This is for times, and for the rare case where a raw native field is wanted.
+ */
 const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
   ({ className, type = "date", ...props }, ref) => {
     const Icon = type === "time" ? Clock : Calendar
@@ -16,13 +33,23 @@ const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
           ref={ref}
           type={type}
           className={cn(
-            "flex h-9 w-full rounded-md border border-border bg-surface px-3 py-2 pr-9",
+            "relative flex h-10 w-full rounded-lg border border-border bg-canvas px-3 py-2 pr-9",
             "text-sm text-foreground",
             "transition-[border-color,box-shadow] duration-150",
             "hover:border-border-strong",
-            "focus-visible:outline-none focus-visible:border-focus-ring focus-visible:ring-2 focus-visible:ring-focus-ring/20",
+            "focus-visible:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-focus-ring/20",
             "disabled:cursor-not-allowed disabled:opacity-50",
+            // Keeps the typed value legible in both themes; the indicator below is
+            // hidden regardless, so this only governs the text itself.
             "[color-scheme:light] dark:[color-scheme:dark]",
+            // The whole control becomes the trigger, and the untheme-able native glyph
+            // stops competing with the icon we actually draw.
+            "[&::-webkit-calendar-picker-indicator]:absolute",
+            "[&::-webkit-calendar-picker-indicator]:inset-0",
+            "[&::-webkit-calendar-picker-indicator]:h-full",
+            "[&::-webkit-calendar-picker-indicator]:w-full",
+            "[&::-webkit-calendar-picker-indicator]:cursor-pointer",
+            "[&::-webkit-calendar-picker-indicator]:opacity-0",
             className
           )}
           {...props}

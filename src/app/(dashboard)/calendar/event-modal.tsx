@@ -17,6 +17,7 @@ import { Button, IconButton } from "@/components/ui/button"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { DateInput } from "@/components/ui/date-input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { FormField } from "@/components/ui/form-field"
 import { Switch } from "@/components/ui/switch"
 
@@ -284,11 +285,7 @@ export function EventModal({
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <FormField label="Date" required>
-                <DateInput
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                />
+                <DatePicker value={date} onChange={setDate} />
               </FormField>
 
               <FormField label="Starts" required>

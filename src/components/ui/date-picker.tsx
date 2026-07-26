@@ -32,12 +32,25 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ] as const
 
+/**
+ * Read a `yyyy-MM-dd` value as a local calendar day.
+ *
+ * `new Date("2026-08-02")` is parsed as UTC midnight, so anywhere behind UTC it
+ * renders — and highlights — the 1st. The date on a run sheet or a roster is a
+ * calendar day, not an instant, and it must not shift with the reader's timezone.
+ * Appending a time forces local parsing. Full timestamps are passed through, since
+ * those genuinely are instants.
+ */
+function parseLocalDate(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
+}
+
 export function DatePicker({ value, onChange, placeholder = "Select date", className }: DatePickerProps) {
   const [open, setOpen] = React.useState(false)
-  const [viewDate, setViewDate] = React.useState(() => value ? new Date(value) : new Date())
+  const [viewDate, setViewDate] = React.useState(() => value ? parseLocalDate(value) : new Date())
   const triggerRef = React.useRef<HTMLButtonElement>(null)
 
-  const selectedDate = value ? new Date(value) : null
+  const selectedDate = value ? parseLocalDate(value) : null
 
   const monthStart = startOfMonth(viewDate)
   const monthEnd = endOfMonth(viewDate)

@@ -13,6 +13,7 @@ import { createStandaloneRunSheet, createFromTemplate, deleteRunSheet } from "@/
 import { PageHeader } from "@/components/ui/page-header"
 import { Button, IconButton } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Modal } from "@/components/ui/modal"
 import { Select } from "@/components/ui/select"
 import { StatusBadge } from "@/components/ui/status-badge"
@@ -291,7 +292,7 @@ function NewRunSheetModal({
           />
         </FormField>
         <FormField label="Date">
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DatePicker value={date} onChange={setDate} />
         </FormField>
         <FormField label="Event (optional)">
           <Select
@@ -357,7 +358,7 @@ function UseTemplateModal({
           <Input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
         </FormField>
         <FormField label="Date" required>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DatePicker value={date} onChange={setDate} />
         </FormField>
       </div>
     </Modal>
