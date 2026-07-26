@@ -98,11 +98,21 @@ export default async function RunSheetDetailPage({
       confirmed: r.status === "confirmed"
     }))
 
+  // The sheet's active share link, if it has one. Only the token travels to the
+  // client — it is the whole credential, and the surrounding row is nobody's business.
+  const { data: shareLink } = await supabase
+    .from("run_sheet_share_links")
+    .select("token")
+    .eq("run_sheet_id", id)
+    .eq("is_active", true)
+    .maybeSingle()
+
   return (
     <Suspense>
       <RunSheetTimelineClient
         sheet={sheet as unknown as Parameters<typeof RunSheetTimelineClient>[0]["sheet"]}
         roster={roster}
+        shareToken={shareLink?.token ?? null}
         sessions={
           (sessions ?? []) as unknown as Parameters<
             typeof RunSheetTimelineClient

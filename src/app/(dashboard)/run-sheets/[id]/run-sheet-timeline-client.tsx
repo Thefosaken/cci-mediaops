@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 
 import { format } from "date-fns"
-import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play, MoreHorizontal } from "lucide-react"
+import { Plus, Clock, Users, ArrowRight, Trash2, Copy, BookmarkPlus, Play, MoreHorizontal, MonitorSmartphone } from "lucide-react"
 
 import { useToast } from "@/lib/toast/toast-context"
 import { useBreadcrumbLabel } from "@/lib/hooks/use-breadcrumb"
@@ -28,6 +28,7 @@ import { duplicateRunSheet, saveAsTemplate, deleteRunSheet } from "@/server/acti
 import { LiveMode } from "./live-mode"
 import { TimelineTrack, laneHeightFor, type TrackSession } from "./timeline-track"
 import { SessionPeek } from "./session-peek"
+import { ShareModal } from "./share-modal"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Button, IconButton } from "@/components/ui/button"
@@ -88,6 +89,8 @@ interface Props {
   users: { id: string; full_name: string }[]
   /** Published duties for the service this sheet belongs to. Empty for a standalone sheet. */
   roster: RosterEntry[]
+  /** The sheet's active live-view token, or null when it isn't shared. */
+  shareToken: string | null
   canEdit: boolean
   canDelete: boolean
 }
@@ -108,6 +111,7 @@ export function RunSheetTimelineClient({
   subTeams,
   users,
   roster,
+  shareToken,
   canEdit,
   canDelete,
 }: Props) {
@@ -122,6 +126,7 @@ export function RunSheetTimelineClient({
   const [copyMode, setCopyMode] = useState<"duplicate" | "template" | null>(null)
   const [live, setLive] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [sharing, setSharing] = useState(false)
   const [hourPx, setHourPx] = useState(DEFAULT_ZOOM)
   const [peek, setPeek] = useState<{ session: TrackSession; anchor: DOMRect } | null>(null)
 
@@ -304,6 +309,11 @@ export function RunSheetTimelineClient({
                 <DropdownMenuItem onSelect={() => setCopyMode("template")}>
                   <BookmarkPlus className="size-3.5" />
                   Save as template
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setSharing(true)}>
+                  <MonitorSmartphone className="size-3.5" />
+                  {shareToken ? "Live view link" : "Share live view"}
                 </DropdownMenuItem>
                 {canDelete && (
                   <>
@@ -513,6 +523,17 @@ export function RunSheetTimelineClient({
               }
             })
           }
+        />
+      )}
+
+      {/* ── Share the live view ──────────────────────────────── */}
+      {sharing && canEdit && (
+        <ShareModal
+          runSheetId={sheet.id}
+          existingToken={shareToken}
+          onClose={() => setSharing(false)}
+          onChanged={refresh}
+          onError={toast.error}
         />
       )}
 

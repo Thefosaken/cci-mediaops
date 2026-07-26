@@ -5,6 +5,7 @@ import { format } from "date-fns"
 
 import { cn } from "@/lib/utils/cn"
 import { planCascade, type TimelineSession } from "@/lib/utils/run-sheet-timeline"
+import { isPast, sessionPalette } from "./session-colors"
 
 /**
  * Horizontal calendar track for a run sheet.
@@ -445,9 +446,15 @@ function SessionBar({
     onGesture(null)
   }
 
-  const done = session.status === "completed"
   const skipped = session.status === "skipped"
   const showPeople = width >= SHOW_PEOPLE && session.members.length > 0
+
+  const palette = sessionPalette(index)
+  /**
+   * Dimming is reserved for time having passed. Colour carries which session this is,
+   * so it cannot also carry whether it is done — one channel, one meaning.
+   */
+  const past = isPast(session, end, now)
 
   return (
     <div
@@ -495,29 +502,31 @@ function SessionBar({
         canEdit && !active && "cursor-grab",
         active && "cursor-grabbing",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] focus-visible:ring-offset-2",
-        selected
-          ? "bg-primary ring-1 ring-primary"
-          : "bg-[var(--color-primary-soft)] ring-1 ring-inset ring-primary/25",
-        running && !selected && "ring-primary/50",
-        done && "opacity-55",
-        skipped && "opacity-40"
+        // Identity is the fill and never changes. Selection is a heavier outline, so
+        // picking a session cannot be confused with it being a different session.
+        palette.fill,
+        selected ? "ring-2 ring-foreground" : cn("ring-1 ring-inset", palette.ring),
+        running && !selected && "ring-2 ring-white/70",
+        // Desaturated as well as faded — opacity alone on a saturated fill still pulls
+        // the eye, and the point of a passed session is that it stops competing.
+        past && !running && "opacity-45 saturate-50",
+        skipped && "opacity-30"
       )}
     >
       {/* Elapsed fill */}
       {progress > 0 && (
         <span
           aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-y-0 left-0 transition-[width] duration-[15000ms] ease-linear",
-            selected ? "bg-black/15" : "bg-primary/20"
-          )}
+          // A darkening wash rather than a tint, so one overlay reads correctly over
+          // every fill in the palette instead of needing a variant per hue.
+          className="pointer-events-none absolute inset-y-0 left-0 bg-black/20 transition-[width] duration-[15000ms] ease-linear"
           style={{ width: `${progress * 100}%` }}
         />
       )}
       {running && (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 w-px bg-primary transition-[left] duration-[15000ms] ease-linear"
+          className="pointer-events-none absolute inset-y-0 w-px bg-white/90 transition-[left] duration-[15000ms] ease-linear"
           style={{ left: `${progress * 100}%` }}
         />
       )}
@@ -525,10 +534,7 @@ function SessionBar({
       {/* Start-edge rule */}
       <span
         aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-y-0 left-0 w-[3px]",
-          selected ? "bg-[var(--color-primary-foreground)]/50" : "bg-primary"
-        )}
+        className={cn("pointer-events-none absolute inset-y-0 left-0 w-[3px]", palette.edge)}
       />
 
       {/* Header: name and time */}
@@ -538,7 +544,7 @@ function SessionBar({
             className={cn(
               "truncate text-[13px] font-semibold leading-tight tracking-[-0.01em]",
               skipped && "line-through",
-              selected ? "text-[var(--color-primary-foreground)]" : "text-foreground"
+              palette.onFill
             )}
           >
             {session.name}
@@ -548,7 +554,7 @@ function SessionBar({
           <p
             className={cn(
               "mt-0.5 truncate text-[11px] tabular-nums leading-tight",
-              selected ? "text-[var(--color-primary-foreground)]/70" : "text-muted"
+              palette.onFillMuted
             )}
           >
             {format(start, "h:mm")}–{format(end, "h:mm a")}
@@ -563,10 +569,9 @@ function SessionBar({
         <div
           className={cn(
             "relative mt-auto space-y-[3px] border-t px-2.5 py-1.5",
-            // A primary-tinted rule over the soft primary fill reads as a dark seam,
-            // not a divider. Tinting from the foreground lightens it instead, so it
-            // separates the two blocks the way it looks like it should.
-            selected ? "border-[var(--color-primary-foreground)]/25" : "border-foreground/10"
+            // Tinted from the fill's own ink rather than the page's, so the rule reads
+            // as a divider on every hue instead of a dark seam on the deeper ones.
+            palette.divider
           )}
         >
           {session.members.slice(0, MAX_PEOPLE_IN_BAR).map((m) => (
@@ -574,9 +579,7 @@ function SessionBar({
               <span
                 className={cn(
                   "grid size-[15px] shrink-0 place-items-center rounded-full text-[7.5px] font-semibold",
-                  selected
-                    ? "bg-[var(--color-primary-foreground)] text-primary"
-                    : "bg-primary/25 text-foreground"
+                  palette.avatar
                 )}
               >
                 {initials(m.name)}
@@ -584,7 +587,7 @@ function SessionBar({
               <span
                 className={cn(
                   "truncate text-[11px] leading-tight",
-                  selected ? "text-[var(--color-primary-foreground)]/80" : "text-muted"
+                  palette.onFillMuted
                 )}
               >
                 {m.name}
@@ -609,7 +612,7 @@ function SessionBar({
           <span
             className={cn(
               "h-6 w-[3px] rounded-full",
-              selected ? "bg-[var(--color-primary-foreground)]/50" : "bg-primary/50"
+              palette.edge
             )}
           />
         </span>
