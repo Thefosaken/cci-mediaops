@@ -90,23 +90,21 @@ export function Modal({
     >
       {/* Backdrop */}
       <div
-        onClick={blocking ? undefined : onClose}
         className={cn(
           "absolute inset-0 bg-black/55 backdrop-blur-[3px]",
-          "transition-opacity duration-200 ease-[var(--ease-out-quart)]",
-          open ? "opacity-100" : "opacity-0"
+          open ? "transition-opacity duration-200 ease-[var(--ease-out-quart)] opacity-100" : "opacity-0"
         )}
       />
 
       {/* Centered scroll container — the modal scrolls in the page, so dropdowns
           inside can extend naturally without being clipped by an inner overflow. */}
       <div
+        onClick={blocking ? undefined : (e) => { if (e.target === e.currentTarget) onClose() }}
         className={cn(
           "absolute inset-0 overflow-y-auto",
           "flex items-start sm:items-center justify-center",
           "p-4 sm:p-6",
-          "transition-opacity duration-200",
-          open ? "opacity-100" : "opacity-0"
+          open ? "transition-opacity duration-200 opacity-100" : "opacity-0"
         )}
       >
         <div
