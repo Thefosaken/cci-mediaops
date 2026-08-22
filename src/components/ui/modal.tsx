@@ -96,17 +96,25 @@ export function Modal({
         )}
       />
 
-      {/* Centered scroll container — the modal scrolls in the page, so dropdowns
-          inside can extend naturally without being clipped by an inner overflow. */}
+      {/* Scroll container — the modal scrolls in the page, so dropdowns inside
+          can extend naturally without being clipped by an inner overflow. */}
       <div
-        onClick={blocking ? undefined : (e) => { if (e.target === e.currentTarget) onClose() }}
         className={cn(
-          "absolute inset-0 overflow-y-auto",
-          "flex items-start sm:items-center justify-center",
-          "p-4 sm:p-6",
+          "absolute inset-0 overflow-y-auto overscroll-contain",
           open ? "transition-opacity duration-200 opacity-100" : "opacity-0"
         )}
       >
+        {/* Inner wrapper is min-h-full so a modal taller than the viewport stays
+            fully scrollable — both the top and the footer stay reachable on
+            mobile, where `items-center` alone would clip them (and put Cancel
+            behind Safari's toolbar). Extra bottom padding clears the toolbar. */}
+        <div
+          onClick={blocking ? undefined : (e) => { if (e.target === e.currentTarget) onClose() }}
+          className={cn(
+            "flex min-h-full items-start sm:items-center justify-center",
+            "p-4 pb-[max(2rem,env(safe-area-inset-bottom))] sm:p-6"
+          )}
+        >
         <div
           ref={panelRef}
           role="dialog"
@@ -157,6 +165,7 @@ export function Modal({
               {footer}
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>,

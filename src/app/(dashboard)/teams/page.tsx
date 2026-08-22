@@ -20,6 +20,11 @@ export default async function SubTeamsPage() {
 
   const rawRole = (membership as unknown as { roles?: { name?: string } } | null)?.roles?.name as UserRole | undefined
   const isAdmin = rawRole === "super_admin" || rawRole === "media_admin"
+  const isSuperAdmin = rawRole === "super_admin"
+
+  const campusId = await supabase
+    .from("campuses").select("id").eq("status", "active").order("created_at").limit(1).maybeSingle()
+    .then((r) => r.data?.id ?? null)
 
   const [allSubTeamsRes, usersRes, rolesRes, myMembershipsRes, myJoinRequestsRes, allJoinRequestsRes] = await Promise.all([
     supabase
@@ -78,6 +83,8 @@ export default async function SubTeamsPage() {
         equipment={equipRes.data ?? []}
         currentUserId={currentUser.id}
         isAdmin={isAdmin}
+        isSuperAdmin={isSuperAdmin}
+        campusId={campusId}
         myMemberships={myMemberships as unknown as Parameters<typeof SubTeamsPageClient>[0]["myMemberships"]}
         myJoinRequests={myJoinRequestsRes.data ?? []}
         pendingJoinRequests={filteredPendingRequests as unknown as Parameters<typeof SubTeamsPageClient>[0]["pendingJoinRequests"]}

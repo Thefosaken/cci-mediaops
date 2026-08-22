@@ -24,8 +24,9 @@ import { Modal } from "@/components/ui/modal"
 import { FormField } from "@/components/ui/form-field"
 import { Avatar } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
-import { addSubTeamMember, removeSubTeamMember, assignSubTeamLead } from "@/server/actions/sub-teams"
+import { addSubTeamMember, removeSubTeamMember, assignSubTeamLead, createSubTeam } from "@/server/actions/sub-teams"
 import { requestSubTeamJoin, approveJoinRequest, rejectJoinRequest, cancelMyJoinRequest } from "@/server/actions/join-requests"
+import { inviteMember } from "@/server/actions/invites"
 
 type SubTeamRow = {
   id: string
@@ -62,6 +63,8 @@ export function SubTeamsPageClient({
   equipment,
   currentUserId,
   isAdmin,
+  isSuperAdmin,
+  campusId,
   myMemberships,
   myJoinRequests,
   pendingJoinRequests,
@@ -73,6 +76,8 @@ export function SubTeamsPageClient({
   equipment: { id: string; sub_team_id: string; condition_status: string; availability_status: string }[]
   currentUserId: string
   isAdmin: boolean
+  isSuperAdmin: boolean
+  campusId: string | null
   myMemberships: MyMembership[]
   myJoinRequests: MyJoinRequest[]
   pendingJoinRequests: PendingJoinRequest[]
@@ -85,6 +90,7 @@ export function SubTeamsPageClient({
   const [showAddMember, setShowAddMember] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
+  const [showNewTeam, setShowNewTeam] = useState(false)
 
   const active = subTeams.find((s) => s.id === activeId) ?? null
 
@@ -128,6 +134,26 @@ export function SubTeamsPageClient({
     const r = await addSubTeamMember(active.id, userId, memberRoleId)
     if (r.error) toastError(r.error)
     else { success("Member added"); router.refresh() }
+  }
+
+  // Create a brand-new user (invited) and add them straight onto this team.
+  async function addNewMember(fullName: string, email: string): Promise<boolean> {
+    if (!active || !memberRoleId) return false
+    const invited = await inviteMember({ email, fullName, roleId: memberRoleId })
+    if (!invited.success) { toastError(invited.error); return false }
+    const added = await addSubTeamMember(active.id, invited.data!.userId, memberRoleId)
+    if (added.error) { toastError(added.error); return false }
+    success("Member created and added — an invite was emailed")
+    router.refresh()
+    return true
+  }
+
+  async function createTeam(name: string, description: string): Promise<boolean> {
+    if (!campusId) { toastError("No active campus found"); return false }
+    const r = await createSubTeam({ campusId, name, description: description || undefined })
+    if (r.error) { toastError(r.error); return false }
+    success("Team created"); router.refresh()
+    return true
   }
 
   async function requestJoin(message?: string) {
@@ -220,9 +246,16 @@ export function SubTeamsPageClient({
           )}
         >
           <div className="px-3 py-3">
-            <p className="mb-2 px-1.5 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-faint">
-              Teams
-            </p>
+            <div className="mb-2 flex items-center justify-between px-1.5">
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-faint">
+                Teams
+              </p>
+              {isSuperAdmin && (
+                <IconButton label="New team" size="xs" onClick={() => setShowNewTeam(true)}>
+                  <Plus className="h-3.5 w-3.5" />
+                </IconButton>
+              )}
+            </div>
 
             {subTeams.length === 0 ? (
               <div className="px-1.5 py-6">
@@ -384,7 +417,14 @@ export function SubTeamsPageClient({
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
-                  {!isMember && pendingJoin && (
+                  {canModerate ? (
+                    // Admins and leads manage the roster — they add people, they
+                    // don't ask to join.
+                    <Button size="sm" onClick={() => setShowAddMember(true)}>
+                      <UserPlus className="h-3.5 w-3.5" />
+                      Add member
+                    </Button>
+                  ) : !isMember && pendingJoin ? (
                     <>
                       <Badge variant="warning" size="sm" dot>
                         <Clock className="h-2.5 w-2.5" />
@@ -394,13 +434,12 @@ export function SubTeamsPageClient({
                         Cancel
                       </Button>
                     </>
-                  )}
-                  {!isMember && !pendingJoin && (
+                  ) : !isMember && !pendingJoin ? (
                     <Button size="sm" onClick={() => setShowJoinModal(true)}>
                       <UserPlus2 className="h-3.5 w-3.5" />
                       Request to join
                     </Button>
-                  )}
+                  ) : null}
                 </div>
               </header>
 
@@ -448,11 +487,8 @@ export function SubTeamsPageClient({
               <section className="mt-6 overflow-hidden rounded-lg border border-border bg-surface">
                 <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
                   <h3 className="text-[12.5px] font-semibold text-foreground">Members</h3>
-                  {canModerate && (
-                    <Button size="xs" variant="secondary" onClick={() => setShowAddMember(true)}>
-                      <UserPlus className="h-3 w-3" /> Add member
-                    </Button>
-                  )}
+                  {/* "Add member" lives in the page header for moderators — no
+                      duplicate button here. */}
                 </div>
 
                 {active.sub_team_memberships.length === 0 ? (
@@ -650,8 +686,24 @@ export function SubTeamsPageClient({
           allUsers={allUsers}
           currentMemberIds={active.sub_team_memberships.map((m) => m.users?.id).filter(Boolean) as string[]}
           onAdd={(uid) => { addMember(uid); setShowAddMember(false) }}
+          onAddNew={async (name, email) => {
+            const ok = await addNewMember(name, email)
+            if (ok) setShowAddMember(false)
+            return ok
+          }}
         />
       )}
+
+      {/* New team modal */}
+      <NewTeamModal
+        open={showNewTeam}
+        onClose={() => setShowNewTeam(false)}
+        onCreate={async (name, description) => {
+          const ok = await createTeam(name, description)
+          if (ok) setShowNewTeam(false)
+          return ok
+        }}
+      />
 
       {/* Add task modal */}
       {active && (
@@ -728,15 +780,23 @@ function JoinRequestModal({
 
 
 function AddMemberModal({
-  open, onClose, allUsers, currentMemberIds, onAdd,
+  open, onClose, allUsers, currentMemberIds, onAdd, onAddNew,
 }: {
   open: boolean
   onClose: () => void
   allUsers: UserLite[]
   currentMemberIds: string[]
   onAdd: (userId: string) => void
+  onAddNew: (fullName: string, email: string) => Promise<boolean>
 }) {
+  const { error: toastError } = useToast()
   const [query, setQuery] = useState("")
+  // When set, the modal switches to the "create a brand-new member" form.
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState("")
+  const [newEmail, setNewEmail] = useState("")
+  const [saving, setSaving] = useState(false)
+
   const available = useMemo(() => {
     const list = allUsers.filter((u) => !currentMemberIds.includes(u.id))
     if (!query.trim()) return list
@@ -747,44 +807,143 @@ function AddMemberModal({
     )
   }, [allUsers, currentMemberIds, query])
 
+  // Seed the new-member form from whatever was typed — an email goes in the
+  // email box, anything else in the name box.
+  function startCreate() {
+    const q = query.trim()
+    const looksLikeEmail = q.includes("@")
+    setNewName(looksLikeEmail ? "" : q)
+    setNewEmail(looksLikeEmail ? q : "")
+    setCreating(true)
+  }
+
+  async function submitNew() {
+    if (!newName.trim() || !newEmail.trim()) { toastError("Name and email are required"); return }
+    setSaving(true)
+    const ok = await onAddNew(newName.trim(), newEmail.trim())
+    setSaving(false)
+    if (ok) { setCreating(false); setQuery(""); setNewName(""); setNewEmail("") }
+  }
+
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Add member"
-      description="Pick from active users. They'll join with the Team Member role."
+      title={creating ? "Add new member" : "Add member"}
+      description={creating
+        ? "Create a new person and add them to this team. They'll be emailed an invite."
+        : "Pick from active users, or create a new member."}
       size="default"
+      footer={creating ? (
+        <>
+          <Button variant="ghost" onClick={() => setCreating(false)} disabled={saving}>Back</Button>
+          <Button onClick={submitNew} loading={saving}>Create &amp; add</Button>
+        </>
+      ) : undefined}
     >
-      <Input
-        autoFocus
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search by name or email…"
-        leadingIcon={<Search />}
-        className="mb-3"
-      />
-      <ul className="max-h-[360px] overflow-y-auto -mx-2">
-        {available.length === 0 ? (
-          <li className="px-4 py-8 text-center text-[13px] text-faint">No users found</li>
-        ) : (
-          available.map((u) => (
-            <li key={u.id}>
-              <button
-                type="button"
-                onClick={() => onAdd(u.id)}
-                className="flex w-full items-center gap-2.5 px-3 py-2 rounded-md text-left hover:bg-surface-subtle transition-colors"
-              >
-                <Avatar name={u.full_name} email={u.email} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium text-foreground truncate">{u.full_name ?? "?"}</p>
-                  <p className="text-[11.5px] text-faint truncate">{u.email}</p>
-                </div>
-                <Plus className="h-3.5 w-3.5 text-faint" />
-              </button>
-            </li>
-          ))
-        )}
-      </ul>
+      {creating ? (
+        <div className="grid gap-4 py-1">
+          <FormField label="Full name" required>
+            <Input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Ada Lovelace" />
+          </FormField>
+          <FormField label="Email" required>
+            <Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="name@example.com" />
+          </FormField>
+        </div>
+      ) : (
+        <>
+          <Input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name or email…"
+            leadingIcon={<Search />}
+            className="mb-3"
+          />
+          <ul className="max-h-[360px] overflow-y-auto -mx-2">
+            {query.trim() && (
+              <li>
+                <button
+                  type="button"
+                  onClick={startCreate}
+                  className="flex w-full items-center gap-2.5 px-3 py-2 rounded-md text-left text-primary hover:bg-surface-subtle transition-colors"
+                >
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-primary/40">
+                    <UserPlus2 className="h-4 w-4" />
+                  </span>
+                  <span className="text-[13px] font-medium">Add “{query.trim()}” as a new member</span>
+                </button>
+              </li>
+            )}
+            {available.length === 0 ? (
+              !query.trim() && <li className="px-4 py-8 text-center text-[13px] text-faint">No users yet</li>
+            ) : (
+              available.map((u) => (
+                <li key={u.id}>
+                  <button
+                    type="button"
+                    onClick={() => onAdd(u.id)}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 rounded-md text-left hover:bg-surface-subtle transition-colors"
+                  >
+                    <Avatar name={u.full_name} email={u.email} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium text-foreground truncate">{u.full_name ?? "?"}</p>
+                      <p className="text-[11.5px] text-faint truncate">{u.email}</p>
+                    </div>
+                    <Plus className="h-3.5 w-3.5 text-faint" />
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </>
+      )}
+    </Modal>
+  )
+}
+
+function NewTeamModal({
+  open, onClose, onCreate,
+}: {
+  open: boolean
+  onClose: () => void
+  onCreate: (name: string, description: string) => Promise<boolean>
+}) {
+  const { error: toastError } = useToast()
+  const [name, setName] = useState("")
+  const [description, setDescription] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  async function submit() {
+    if (!name.trim()) { toastError("Name is required"); return }
+    setSaving(true)
+    const ok = await onCreate(name.trim(), description.trim())
+    setSaving(false)
+    if (ok) { setName(""); setDescription("") }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="New team"
+      description="Create a media team for this campus."
+      size="default"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={submit} loading={saving}>Create team</Button>
+        </>
+      }
+    >
+      <div className="grid gap-4 py-1">
+        <FormField label="Name" required>
+          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lighting" />
+        </FormField>
+        <FormField label="Description">
+          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="What this team does…" />
+        </FormField>
+      </div>
     </Modal>
   )
 }
