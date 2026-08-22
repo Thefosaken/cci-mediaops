@@ -26,6 +26,7 @@ export default async function ReportsPage() {
     completedReqsRes,
     inProgressReqsRes,
     pendingApprovalsRes,
+    approvedApprovalsRes,
     unconfirmedSlotsRes,
     confirmedSlotsRes,
     equipmentIssuesRes,
@@ -40,6 +41,7 @@ export default async function ReportsPage() {
     supabase.from("requests").select("id", { count: "exact", head: true }).eq("status", "completed").gte("created_at", fourWeeksAgo),
     supabase.from("requests").select("id", { count: "exact", head: true }).in("status", ["in_progress", "awaiting_approval"]),
     supabase.from("approvals").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("approvals").select("id", { count: "exact", head: true }).eq("status", "approved").gte("created_at", fourWeeksAgo),
     supabase.from("run_sheet_session_members").select("id", { count: "exact", head: true }).eq("confirmation_status", "pending"),
     supabase.from("run_sheet_session_members").select("id", { count: "exact", head: true }).eq("confirmation_status", "confirmed"),
     supabase.from("equipment_items").select("id", { count: "exact", head: true }).in("condition_status", ["faulty", "missing", "under_repair"]),
@@ -106,6 +108,7 @@ export default async function ReportsPage() {
             href="/approvals"
             Icon={ClipboardCheck}
             tone={(pendingApprovalsRes.count ?? 0) > 0 ? "info" : "neutral"}
+            sub={`${approvedApprovalsRes.count ?? 0} approved (28d)`}
           />
           <KpiCard
             label="Equipment issues"
