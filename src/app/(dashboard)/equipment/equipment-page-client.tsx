@@ -80,12 +80,14 @@ export function EquipmentPageClient({
   events,
   users,
   memberships,
+  campusCode,
 }: {
   items: EquipmentRow[]
-  subTeams: { id: string; name: string }[]
+  subTeams: { id: string; name: string; code: string | null }[]
   events: { id: string; title: string; start_time: string }[]
   users: { id: string; full_name: string | null; email: string | null }[]
   memberships: { sub_team_id: string; user_id: string }[]
+  campusCode: string | null
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
@@ -99,9 +101,26 @@ export function EquipmentPageClient({
   const [query, setQuery] = useState("")
   const [form, setForm] = useState(EMPTY_FORM)
   const [loading, setLoading] = useState(false)
+  // Whether the user has hand-edited the asset tag; if not, picking a team
+  // auto-fills it. Reset when the Add modal opens.
+  const [assetTagTouched, setAssetTagTouched] = useState(false)
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (showNew) setForm(EMPTY_FORM) }, [showNew])
+  useEffect(() => { if (showNew) { setForm(EMPTY_FORM); setAssetTagTouched(false) } }, [showNew])
+
+  // Next asset tag for a team: CAMPUS-TEAM-NNN, sequence per team. Derived from
+  // the equipment already loaded, so no extra round-trip.
+  function nextAssetTag(teamId: string): string {
+    const team = subTeams.find((t) => t.id === teamId)
+    if (!campusCode || !team?.code) return ""
+    const prefix = `${campusCode}-${team.code}-`
+    const highest = items
+      .filter((i) => i.sub_team_id === teamId && i.asset_tag?.startsWith(prefix))
+      .map((i) => parseInt(i.asset_tag!.slice(prefix.length), 10))
+      .filter((n) => Number.isFinite(n))
+      .reduce((max, n) => Math.max(max, n), 0)
+    return `${prefix}${String(highest + 1).padStart(3, "0")}`
+  }
 
   const detail = useMemo(() => items.find((i) => i.id === detailId) ?? null, [items, detailId])
 
@@ -297,16 +316,21 @@ export function EquipmentPageClient({
               placeholder="e.g. Shure SM58 Microphone" />
           </FormField>
           <FormField label="Team" required>
-            <Select value={form.subTeamId} onChange={(v) => setForm({ ...form, subTeamId: v })}
+            <Select value={form.subTeamId} onChange={(v) => setForm((f) => ({
+              ...f,
+              subTeamId: v,
+              assetTag: assetTagTouched ? f.assetTag : nextAssetTag(v),
+            }))}
               options={[{ value: "", label: "Select…" }, ...subTeams.map((s) => ({ value: s.id, label: s.name }))]} />
           </FormField>
           <FormField label="Category">
             <Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
               placeholder="e.g. Microphone" />
           </FormField>
-          <FormField label="Asset tag">
-            <Input value={form.assetTag} onChange={(e) => setForm({ ...form, assetTag: e.target.value })}
-              placeholder="e.g. CCI-001" className="font-mono" />
+          <FormField label="Asset tag" helper="Auto-filled from the team — editable">
+            <Input value={form.assetTag}
+              onChange={(e) => { setAssetTagTouched(true); setForm({ ...form, assetTag: e.target.value }) }}
+              placeholder="e.g. CCIB-PROJ-001" className="font-mono" />
           </FormField>
           <FormField label="Serial number" helper="Type it, or scan the label from a photo">
             <div className="flex items-center gap-2">

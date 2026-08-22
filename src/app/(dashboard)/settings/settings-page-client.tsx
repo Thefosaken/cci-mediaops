@@ -30,7 +30,7 @@ import { approveUserWithRole, rejectPendingUser } from "@/server/actions/onboard
 import { inviteMember, resendInvite, cancelInvite } from "@/server/actions/invites"
 
 interface Role { id: string; name: string; description: string | null }
-interface SubTeam { id: string; name: string; description: string | null; status: string }
+interface SubTeam { id: string; name: string; description: string | null; status: string; code: string | null }
 interface UserRow {
   id: string
   full_name: string | null
@@ -41,7 +41,7 @@ interface UserRow {
   accepted_invite_at: string | null
   campus_memberships: { id: string; role_id: string | null; status: string }[]
 }
-interface Campus { id: string; name: string; location: string | null }
+interface Campus { id: string; name: string; location: string | null; code: string | null }
 interface PublicLinkRow {
   id: string
   token: string
@@ -301,13 +301,15 @@ function CampusSection({ campus }: { campus: Campus | null }) {
   const router = useRouter()
   const [name, setName] = useState(campus?.name ?? "")
   const [location, setLocation] = useState(campus?.location ?? "")
+  const [code, setCode] = useState(campus?.code ?? "")
   const [saving, setSaving] = useState(false)
 
   async function save() {
     if (!campus) return
     setSaving(true)
     const supabase = createClient()
-    const { error } = await supabase.from("campuses").update({ name, location }).eq("id", campus.id)
+    const cleanCode = code.trim().toUpperCase() || null
+    const { error } = await supabase.from("campuses").update({ name, location, code: cleanCode }).eq("id", campus.id)
     setSaving(false)
     if (error) toastError(error.message); else { success("Campus updated"); router.refresh() }
   }
@@ -331,6 +333,9 @@ function CampusSection({ campus }: { campus: Campus | null }) {
         </FormField>
         <FormField label="Location">
           <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, country" />
+        </FormField>
+        <FormField label="Campus code" helper="Short prefix for equipment asset tags, e.g. CCIB">
+          <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. CCIB" className="font-mono uppercase w-40" maxLength={8} />
         </FormField>
         <div className="flex justify-end pt-4 border-t border-border">
           <Button size="sm" onClick={save} loading={saving}>Save</Button>
@@ -398,22 +403,52 @@ function SubTeamsSection({ subTeams }: { subTeams: SubTeam[] }) {
       ) : (
         <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
           {subTeams.map((st) => (
-            <div key={st.id} className="flex items-center gap-3 px-5 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium text-foreground">{st.name}</p>
-                {st.description && <p className="text-[12px] text-muted mt-0.5">{st.description}</p>}
-              </div>
-              <Badge variant={st.status === "active" ? "success" : "muted"} size="sm" dot>
-                {st.status}
-              </Badge>
-              <Switch
-                checked={st.status === "active"}
-                onChange={() => toggleStatus(st)}
-              />
-            </div>
+            <TeamRow key={st.id} team={st} onToggle={() => toggleStatus(st)} />
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// One team row with an inline, editable asset-tag code (saved on blur).
+function TeamRow({ team, onToggle }: { team: SubTeam; onToggle: () => void }) {
+  const { success, error: toastError } = useToast()
+  const router = useRouter()
+  const [code, setCode] = useState(team.code ?? "")
+  const [saving, setSaving] = useState(false)
+
+  async function saveCode() {
+    const clean = code.trim().toUpperCase() || null
+    if (clean === (team.code ?? null)) return
+    setSaving(true)
+    const supabase = createClient()
+    const { error } = await supabase.from("sub_teams").update({ code: clean }).eq("id", team.id)
+    setSaving(false)
+    if (error) { toastError(error.message); setCode(team.code ?? "") }
+    else { success("Team code updated"); router.refresh() }
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-5 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium text-foreground">{team.name}</p>
+        {team.description && <p className="text-[12px] text-muted mt-0.5">{team.description}</p>}
+      </div>
+      <Input
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        onBlur={saveCode}
+        placeholder="CODE"
+        aria-label={`${team.name} asset-tag code`}
+        className="font-mono uppercase w-24 !h-8"
+        maxLength={8}
+        disabled={saving}
+      />
+      <Badge variant={team.status === "active" ? "success" : "muted"} size="sm" dot>
+        {team.status}
+      </Badge>
+      <Switch checked={team.status === "active"} onChange={onToggle} />
     </div>
   )
 }
