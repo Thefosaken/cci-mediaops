@@ -34,6 +34,7 @@ import {
   checkInEquipment,
   reportEquipmentIssue,
   updateEquipmentItem,
+  markEquipmentFound,
 } from "@/server/actions/equipment"
 
 interface EquipmentRow {
@@ -374,10 +375,19 @@ function EquipmentActions({
         }
       >
         <DropdownMenuLabel>Condition</DropdownMenuLabel>
-        <DropdownMenuItem icon={<CheckCircle2 />} onSelect={async () => {
-          const r = await updateEquipmentItem(item.id, { condition_status: "good" })
-          if (r.error) toastError(r.error); else { success("Marked good"); onChange() }
-        }}>Mark good</DropdownMenuItem>
+        {item.condition_status === "missing" ? (
+          // Already flagged missing — the useful action is recovery, so
+          // "Mark as found" replaces both "Mark good" and "Mark missing".
+          <DropdownMenuItem icon={<CheckCircle2 />} onSelect={async () => {
+            const r = await markEquipmentFound(item.id)
+            if (r.error) toastError(r.error); else { success("Marked as found"); onChange() }
+          }}>Mark as found</DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem icon={<CheckCircle2 />} onSelect={async () => {
+            const r = await updateEquipmentItem(item.id, { condition_status: "good" })
+            if (r.error) toastError(r.error); else { success("Marked good"); onChange() }
+          }}>Mark good</DropdownMenuItem>
+        )}
         <DropdownMenuItem icon={<RefreshCcw />} onSelect={async () => {
           const r = await updateEquipmentItem(item.id, { condition_status: "under_repair" })
           if (r.error) toastError(r.error); else { success("Marked under repair"); onChange() }
@@ -385,10 +395,12 @@ function EquipmentActions({
         <DropdownMenuItem icon={<AlertTriangle />} variant="danger" onSelect={() => setShowIssue(true)}>
           Report issue
         </DropdownMenuItem>
-        <DropdownMenuItem variant="danger" onSelect={async () => {
-          const r = await updateEquipmentItem(item.id, { condition_status: "missing" })
-          if (r.error) toastError(r.error); else { success("Marked missing"); onChange() }
-        }}>Mark missing</DropdownMenuItem>
+        {item.condition_status !== "missing" && (
+          <DropdownMenuItem variant="danger" onSelect={async () => {
+            const r = await updateEquipmentItem(item.id, { condition_status: "missing" })
+            if (r.error) toastError(r.error); else { success("Marked missing"); onChange() }
+          }}>Mark missing</DropdownMenuItem>
+        )}
       </DropdownMenu>
 
       {item.availability_status === "checked_out" ? (

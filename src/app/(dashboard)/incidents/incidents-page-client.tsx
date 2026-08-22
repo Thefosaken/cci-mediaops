@@ -105,46 +105,41 @@ export function IncidentsPageClient({
   const [query, setQuery] = useState("")
   const [form, setForm] = useState(EMPTY_FORM)
   const [loading, setLoading] = useState(false)
+  // Optimistically hide items the user just marked found, so the row
+  // disappears immediately instead of waiting on the server round-trip.
+  const [foundIds, setFoundIds] = useState<Set<string>>(new Set())
 
   const isMissingTab = tab === "missing"
 
-  // Open the report modal with a clean form. Prefill flows (reportMissing)
-  // set their own form before opening, so we don't reset in an effect —
-  // that would wipe the prefill the moment the modal appeared.
+  // Open the report modal with a clean form.
   function openReport() {
     setForm(EMPTY_FORM)
     set({ new: "1" })
   }
 
-  function reportMissing(item: MissingItem) {
-    setForm({
-      eventId: "",
-      subTeamId: item.sub_team_id,
-      incidentType: "missing_equipment",
-      severity: "medium",
-      description: `${item.name}${item.asset_tag ? ` (${item.asset_tag})` : ""} is missing.`,
-    })
-    set({ new: "1" })
-  }
-
   const detail = useMemo(() => incidents.find((i) => i.id === detailId) ?? null, [incidents, detailId])
+
+  const visibleMissing = useMemo(
+    () => missingItems.filter((m) => !foundIds.has(m.id)),
+    [missingItems, foundIds]
+  )
 
   const counts = useMemo(() => ({
     open: incidents.filter((i) => i.status !== "resolved").length,
     resolved: incidents.filter((i) => i.status === "resolved").length,
     critical: incidents.filter((i) => i.severity === "critical" && i.status !== "resolved").length,
-    missing: missingItems.length,
-  }), [incidents, missingItems])
+    missing: visibleMissing.length,
+  }), [incidents, visibleMissing])
 
   const filteredMissing = useMemo(() => {
-    if (!query.trim()) return missingItems
+    if (!query.trim()) return visibleMissing
     const q = query.toLowerCase()
-    return missingItems.filter((m) =>
+    return visibleMissing.filter((m) =>
       m.name.toLowerCase().includes(q) ||
       (m.asset_tag ?? "").toLowerCase().includes(q) ||
       (m.sub_teams?.name ?? "").toLowerCase().includes(q)
     )
-  }, [missingItems, query])
+  }, [visibleMissing, query])
 
   const filtered = useMemo(() => {
     let list = incidents
@@ -208,9 +203,15 @@ export function IncidentsPageClient({
   }
 
   async function markFound(id: string) {
+    setFoundIds((prev) => new Set(prev).add(id))
     const r = await markEquipmentFound(id)
-    if (r.error) toastError(r.error)
-    else { success("Marked as found"); router.refresh() }
+    if (r.error) {
+      setFoundIds((prev) => { const next = new Set(prev); next.delete(id); return next })
+      toastError(r.error)
+    } else {
+      success("Marked as found")
+      router.refresh()
+    }
   }
 
   return (
@@ -301,12 +302,9 @@ export function IncidentsPageClient({
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="shrink-0">
                       <Button variant="secondary" size="sm" onClick={() => markFound(item.id)}>
                         <CheckCircle2 className="h-3.5 w-3.5" /> Mark found
-                      </Button>
-                      <Button variant="danger" size="sm" onClick={() => reportMissing(item)}>
-                        <Plus className="h-3.5 w-3.5" /> Log incident
                       </Button>
                     </div>
                   </div>
