@@ -78,11 +78,13 @@ export function EquipmentPageClient({
   subTeams,
   events,
   users,
+  memberships,
 }: {
   items: EquipmentRow[]
   subTeams: { id: string; name: string }[]
   events: { id: string; title: string; start_time: string }[]
   users: { id: string; full_name: string | null; email: string | null }[]
+  memberships: { sub_team_id: string; user_id: string }[]
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
@@ -342,6 +344,8 @@ export function EquipmentPageClient({
             item={detail}
             events={events}
             users={users}
+            subTeams={subTeams}
+            memberships={memberships}
             onChange={() => router.refresh()}
           />
         )}
@@ -353,11 +357,13 @@ export function EquipmentPageClient({
 }
 
 function EquipmentActions({
-  item, events, users, onChange,
+  item, events, users, subTeams, memberships, onChange,
 }: {
   item: EquipmentRow
   events: { id: string; title: string; start_time: string }[]
   users: { id: string; full_name: string | null; email: string | null }[]
+  subTeams: { id: string; name: string }[]
+  memberships: { sub_team_id: string; user_id: string }[]
   onChange: () => void
 }) {
   const { success, error: toastError } = useToast()
@@ -415,11 +421,15 @@ function EquipmentActions({
 
       {/* Assign modal */}
       <AssignModal
+        key={item.id}
         open={showAssign}
         onClose={() => setShowAssign(false)}
         equipmentId={item.id}
         events={events}
         users={users}
+        subTeams={subTeams}
+        memberships={memberships}
+        defaultTeamId={item.sub_team_id}
         onDone={() => { onChange(); setShowAssign(false) }}
       />
       <IssueModal
@@ -439,13 +449,16 @@ function EquipmentActions({
 }
 
 function AssignModal({
-  open, onClose, equipmentId, events, users, onDone,
+  open, onClose, equipmentId, events, users, subTeams, memberships, defaultTeamId, onDone,
 }: {
   open: boolean
   onClose: () => void
   equipmentId: string
   events: { id: string; title: string; start_time: string }[]
   users: { id: string; full_name: string | null; email: string | null }[]
+  subTeams: { id: string; name: string }[]
+  memberships: { sub_team_id: string; user_id: string }[]
+  defaultTeamId: string
   onDone: () => void
 }) {
   const { success, error: toastError } = useToast()
@@ -453,6 +466,29 @@ function AssignModal({
   const [userId, setUserId] = useState("")
   const [checkOutNow, setCheckOutNow] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  // team id -> set of member user ids (active memberships only)
+  const teamMemberIds = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const m of memberships) {
+      if (!map.has(m.sub_team_id)) map.set(m.sub_team_id, new Set())
+      map.get(m.sub_team_id)!.add(m.user_id)
+    }
+    return map
+  }, [memberships])
+
+  // Default the team filter to the item's sub-team, unless it has no
+  // members — then start on everyone. The modal is keyed by item id
+  // (see AssignModal usage), so this initializer re-runs for each item.
+  const [teamFilter, setTeamFilter] = useState<string>(
+    () => ((teamMemberIds.get(defaultTeamId)?.size ?? 0) > 0 ? defaultTeamId : "all")
+  )
+
+  const filteredUsers = useMemo(() => {
+    if (teamFilter === "all") return users
+    const ids = teamMemberIds.get(teamFilter)
+    return ids ? users.filter((u) => ids.has(u.id)) : []
+  }, [users, teamFilter, teamMemberIds])
 
   async function go() {
     if (!eventId || !userId) { toastError("Pick an event and a custodian"); return }
@@ -499,9 +535,20 @@ function AssignModal({
             searchable={events.length > 6} />
         </FormField>
         <FormField label="Custodian" required>
-          <Select value={userId} onChange={setUserId}
-            options={[{ value: "", label: "Pick person…" }, ...users.map((u) => ({ value: u.id, label: u.full_name ?? u.email ?? "—" }))]}
-            searchable={users.length > 8} />
+          <div className="space-y-2">
+            <Select
+              value={teamFilter}
+              onChange={(v) => { setTeamFilter(v); setUserId("") }}
+              options={[{ value: "all", label: "All teams" }, ...subTeams.map((s) => ({ value: s.id, label: s.name }))]}
+              aria-label="Filter people by team"
+            />
+            <Select value={userId} onChange={setUserId}
+              options={[
+                { value: "", label: filteredUsers.length ? "Pick person…" : "No members in this team" },
+                ...filteredUsers.map((u) => ({ value: u.id, label: u.full_name ?? u.email ?? "—" })),
+              ]}
+              searchable={filteredUsers.length > 8} />
+          </div>
         </FormField>
         <Checkbox
           label="Check out immediately"
