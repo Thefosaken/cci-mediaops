@@ -9,13 +9,18 @@ export default async function IncidentsPage() {
   await requireAuth()
   const supabase = await createClient()
 
-  const [incRes, eventsRes, subTeamsRes] = await Promise.all([
+  const [incRes, eventsRes, subTeamsRes, missingRes] = await Promise.all([
     supabase
       .from("incidents")
       .select("*, events(id, title, start_time), sub_teams(id, name), reporter:users!reported_by(full_name, email)")
       .order("created_at", { ascending: false }),
     supabase.from("events").select("id, title, start_time").order("start_time", { ascending: false }).limit(60),
     supabase.from("sub_teams").select("id, name").eq("status", "active").order("name"),
+    supabase
+      .from("equipment_items")
+      .select("id, name, category, asset_tag, storage_location, sub_team_id, updated_at, sub_teams(id, name), current_custodian:current_custodian_id(id, full_name, email)")
+      .eq("condition_status", "missing")
+      .order("updated_at", { ascending: false }),
   ])
 
   return (
@@ -24,6 +29,7 @@ export default async function IncidentsPage() {
         incidents={incRes.data ?? []}
         events={eventsRes.data ?? []}
         subTeams={subTeamsRes.data ?? []}
+        missingItems={(missingRes.data ?? []) as unknown as Parameters<typeof IncidentsPageClient>[0]["missingItems"]}
       />
     </Suspense>
   )

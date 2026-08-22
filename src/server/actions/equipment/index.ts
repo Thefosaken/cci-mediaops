@@ -138,3 +138,17 @@ export async function reportEquipmentIssue(
   revalidatePath("/equipment")
   return { success: true }
 }
+
+// Clear a "missing" item once it turns up. Surfaced from the Incidents
+// "Missing items" tab, so revalidate both pages.
+export async function markEquipmentFound(equipmentId: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("equipment_items")
+    .update({ condition_status: "good" })
+    .eq("id", equipmentId)
+  if (error) return { error: error.message }
+  revalidatePath("/equipment")
+  revalidatePath("/incidents")
+  return { success: true }
+}

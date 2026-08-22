@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { format, formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle, Plus, Search, CheckCircle2, Activity,
-  Clock, MessageSquare, X as XIcon,
+  Clock, MessageSquare, PackageX, MapPin,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/lib/toast/toast-context"
@@ -27,6 +27,7 @@ import { SidePanel } from "@/components/ui/side-panel"
 import { DataList, DataItem } from "@/components/ui/data-list"
 import { Avatar } from "@/components/ui/avatar"
 import { resolveIncident, updateIncidentStatus } from "@/server/actions/incidents"
+import { markEquipmentFound } from "@/server/actions/equipment"
 
 interface Incident {
   id: string
@@ -39,6 +40,18 @@ interface Incident {
   sub_teams: { id: string; name: string } | null
   reporter: { full_name: string | null; email: string | null } | null
   created_at: string
+}
+
+interface MissingItem {
+  id: string
+  name: string
+  category: string | null
+  asset_tag: string | null
+  storage_location: string | null
+  sub_team_id: string
+  updated_at: string
+  sub_teams: { id: string; name: string } | null
+  current_custodian: { id: string; full_name: string | null; email: string | null } | null
 }
 
 const INCIDENT_TYPES = [
@@ -73,10 +86,12 @@ export function IncidentsPageClient({
   incidents,
   events,
   subTeams,
+  missingItems,
 }: {
   incidents: Incident[]
   events: { id: string; title: string; start_time: string }[]
   subTeams: { id: string; name: string }[]
+  missingItems: MissingItem[]
 }) {
   const router = useRouter()
   const { success, error: toastError } = useToast()
@@ -91,8 +106,26 @@ export function IncidentsPageClient({
   const [form, setForm] = useState(EMPTY_FORM)
   const [loading, setLoading] = useState(false)
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (showNew) setForm(EMPTY_FORM) }, [showNew])
+  const isMissingTab = tab === "missing"
+
+  // Open the report modal with a clean form. Prefill flows (reportMissing)
+  // set their own form before opening, so we don't reset in an effect —
+  // that would wipe the prefill the moment the modal appeared.
+  function openReport() {
+    setForm(EMPTY_FORM)
+    set({ new: "1" })
+  }
+
+  function reportMissing(item: MissingItem) {
+    setForm({
+      eventId: "",
+      subTeamId: item.sub_team_id,
+      incidentType: "missing_equipment",
+      severity: "medium",
+      description: `${item.name}${item.asset_tag ? ` (${item.asset_tag})` : ""} is missing.`,
+    })
+    set({ new: "1" })
+  }
 
   const detail = useMemo(() => incidents.find((i) => i.id === detailId) ?? null, [incidents, detailId])
 
@@ -100,7 +133,18 @@ export function IncidentsPageClient({
     open: incidents.filter((i) => i.status !== "resolved").length,
     resolved: incidents.filter((i) => i.status === "resolved").length,
     critical: incidents.filter((i) => i.severity === "critical" && i.status !== "resolved").length,
-  }), [incidents])
+    missing: missingItems.length,
+  }), [incidents, missingItems])
+
+  const filteredMissing = useMemo(() => {
+    if (!query.trim()) return missingItems
+    const q = query.toLowerCase()
+    return missingItems.filter((m) =>
+      m.name.toLowerCase().includes(q) ||
+      (m.asset_tag ?? "").toLowerCase().includes(q) ||
+      (m.sub_teams?.name ?? "").toLowerCase().includes(q)
+    )
+  }, [missingItems, query])
 
   const filtered = useMemo(() => {
     let list = incidents
@@ -163,6 +207,12 @@ export function IncidentsPageClient({
     else { success("Incident resolved"); router.refresh() }
   }
 
+  async function markFound(id: string) {
+    const r = await markEquipmentFound(id)
+    if (r.error) toastError(r.error)
+    else { success("Marked as found"); router.refresh() }
+  }
+
   return (
     <div className="flex flex-col">
       <PageHeader
@@ -170,7 +220,7 @@ export function IncidentsPageClient({
         description="Capture and resolve operational issues"
         icon={<AlertTriangle />}
         actions={
-          <Button size="sm" onClick={() => set({ new: "1" })}>
+          <Button size="sm" onClick={openReport}>
             <Plus className="h-3.5 w-3.5" /> Report incident
           </Button>
         }
@@ -183,6 +233,7 @@ export function IncidentsPageClient({
             <TabsTrigger value="critical" badge={counts.critical || undefined}>Critical</TabsTrigger>
             <TabsTrigger value="resolved" badge={counts.resolved || undefined}>Resolved</TabsTrigger>
             <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="missing" badge={counts.missing || undefined}>Missing items</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -190,24 +241,85 @@ export function IncidentsPageClient({
       <Toolbar>
         <ToolbarGroup>
           <Input value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search incidents…"
+            placeholder={isMissingTab ? "Search missing items…" : "Search incidents…"}
             leadingIcon={<Search />}
             className="h-8 w-[260px]" />
-          <Select value={severityFilter} onChange={setSeverityFilter}
-            options={[{ value: "all", label: "All severities" }, ...SEVERITY_OPTIONS]}
-            className="!w-[170px] [&>button]:h-8"
-            aria-label="Severity filter" />
+          {!isMissingTab && (
+            <Select value={severityFilter} onChange={setSeverityFilter}
+              options={[{ value: "all", label: "All severities" }, ...SEVERITY_OPTIONS]}
+              className="!w-[170px] [&>button]:h-8"
+              aria-label="Severity filter" />
+          )}
         </ToolbarGroup>
-        <span className="text-[11.5px] text-faint tabular-nums">{filtered.length}</span>
+        <span className="text-[11.5px] text-faint tabular-nums">
+          {isMissingTab ? filteredMissing.length : filtered.length}
+        </span>
       </Toolbar>
 
       <div className="px-5 sm:px-6 py-6">
-        {filtered.length === 0 ? (
+        {isMissingTab ? (
+          filteredMissing.length === 0 ? (
+            <EmptyState
+              icon={<PackageX />}
+              title={missingItems.length === 0 ? "No missing equipment" : "Nothing matches"}
+              description={missingItems.length === 0
+                ? "Items marked missing in Equipment show up here to be recovered or logged as incidents."
+                : "Try clearing your search."}
+            />
+          ) : (
+            <ul className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+              {filteredMissing.map((item) => (
+                <li key={item.id} className="px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-md bg-danger-soft border border-danger/20 text-danger shrink-0">
+                      <PackageX className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[13.5px] font-medium text-foreground">{item.name}</span>
+                        {item.asset_tag && <Badge variant="muted" size="sm">{item.asset_tag}</Badge>}
+                        {item.sub_teams?.name && <Badge variant="muted" size="sm">{item.sub_teams.name}</Badge>}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 text-[12px] text-faint flex-wrap">
+                        {item.current_custodian?.full_name && (
+                          <span className="inline-flex items-center gap-1">
+                            <Avatar name={item.current_custodian.full_name} size="xs" />
+                            Last held by {item.current_custodian.full_name}
+                          </span>
+                        )}
+                        {item.storage_location && (
+                          <>
+                            {item.current_custodian?.full_name && <span>·</span>}
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin className="h-3 w-3" /> {item.storage_location}
+                            </span>
+                          </>
+                        )}
+                        <span>·</span>
+                        <span className="inline-flex items-center gap-1 tabular-nums">
+                          <Clock className="h-3 w-3" /> missing since {formatDistanceToNow(new Date(item.updated_at), { addSuffix: true })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button variant="secondary" size="sm" onClick={() => markFound(item.id)}>
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Mark found
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={() => reportMissing(item)}>
+                        <Plus className="h-3.5 w-3.5" /> Log incident
+                      </Button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : filtered.length === 0 ? (
           <EmptyState
             icon={<AlertTriangle />}
             title={incidents.length === 0 ? "No incidents" : "Nothing matches"}
             description={incidents.length === 0 ? "Any issues you report will appear here." : "Try clearing filters."}
-            action={incidents.length === 0 ? { label: "Report incident", onClick: () => set({ new: "1" }) } : undefined}
+            action={incidents.length === 0 ? { label: "Report incident", onClick: openReport } : undefined}
           />
         ) : (
           <ul className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
