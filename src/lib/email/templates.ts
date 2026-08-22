@@ -107,7 +107,7 @@ export function userApprovedEmail(input: {
       heading: "You're in",
       body: `<p style="margin:0 0 12px;">Hi ${escape(input.userName)},</p>
         <p style="margin:0 0 12px;">An admin has approved your account. You've been added as <strong style="color:${PALETTE.text};">${escape(input.roleLabel)}</strong>.</p>
-        <p style="margin:0;">Sign in to set up your profile and join your sub-teams.</p>`,
+        <p style="margin:0;">Sign in to set up your profile and join your teams.</p>`,
       ctaLabel: "Sign in",
       ctaHref: `${APP_URL}/login`,
     }),
@@ -121,15 +121,15 @@ export function leadJoinRequestEmail(input: {
 }) {
   return {
     subject: `${input.requesterName} wants to join ${input.subTeamName}`,
-    text: `${input.requesterName} has asked to join ${input.subTeamName}. Review the request: ${APP_URL}/sub-teams`,
+    text: `${input.requesterName} has asked to join ${input.subTeamName}. Review the request: ${APP_URL}/teams`,
     html: shell({
       preheader: `${input.requesterName} wants to join ${input.subTeamName}.`,
       heading: `New join request for ${input.subTeamName}`,
       body: `<p style="margin:0 0 12px;">Hi ${escape(input.leadName)},</p>
         <p style="margin:0 0 12px;"><strong style="color:${PALETTE.text};">${escape(input.requesterName)}</strong> has asked to join <strong style="color:${PALETTE.text};">${escape(input.subTeamName)}</strong>.</p>
-        <p style="margin:0;">You can approve or decline from the sub-team page.</p>`,
+        <p style="margin:0;">You can approve or decline from the team page.</p>`,
       ctaLabel: "Review request",
-      ctaHref: `${APP_URL}/sub-teams`,
+      ctaHref: `${APP_URL}/teams`,
     }),
   }
 }
@@ -169,15 +169,15 @@ export function joinRequestApprovedEmail(input: {
 }) {
   return {
     subject: `You're in ${input.subTeamName}`,
-    text: `Hi ${input.userName}, your request to join ${input.subTeamName} has been approved. Open the team: ${APP_URL}/sub-teams`,
+    text: `Hi ${input.userName}, your request to join ${input.subTeamName} has been approved. Open the team: ${APP_URL}/teams`,
     html: shell({
       preheader: `Welcome to ${input.subTeamName}.`,
       heading: `You're in ${input.subTeamName}`,
       body: `<p style="margin:0 0 12px;">Hi ${escape(input.userName)},</p>
         <p style="margin:0 0 12px;">Your request to join <strong style="color:${PALETTE.text};">${escape(input.subTeamName)}</strong> has been approved.</p>
         <p style="margin:0;">You'll start seeing assignments, requests, and equipment for this team.</p>`,
-      ctaLabel: "Open sub-team",
-      ctaHref: `${APP_URL}/sub-teams`,
+      ctaLabel: "Open team",
+      ctaHref: `${APP_URL}/teams`,
     }),
   }
 }

@@ -225,7 +225,7 @@ export function buildRequestFields(
     },
     {
       id: "sub_teams",
-      label: "Sub-teams",
+      label: "Teams",
       type: "multi",
       icon: "Users",
       value: (r) => {

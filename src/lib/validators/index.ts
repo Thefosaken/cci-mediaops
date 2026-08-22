@@ -104,7 +104,7 @@ export const requestSchema = z.object({
   title: z.string().min(2, "Title is required"),
   requestingUnit: z.string().min(1, "Requesting unit is required"),
   eventId: z.string().optional(),
-  subTeamIds: z.array(z.string()).min(1, "At least one sub-team is required"),
+  subTeamIds: z.array(z.string()).min(1, "At least one team is required"),
   description: z.string().optional(),
   desiredOutput: z.string().optional(),
   deadline: z.string().optional(),
@@ -118,7 +118,7 @@ export const requestSchema = z.object({
 export const taskSchema = z.object({
   title: z.string().min(2, "Title is required"),
   description: z.string().optional(),
-  subTeamId: z.string().min(1, "Sub-team is required"),
+  subTeamId: z.string().min(1, "Team is required"),
   assignedUserId: z.string().optional(),
   dueDate: z.string().optional(),
   priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
@@ -183,7 +183,7 @@ export const runSheetSessionMemberSchema = z.object({
 
 export const equipmentSchema = z.object({
   name: z.string().min(2, "Equipment name is required"),
-  subTeamId: z.string().min(1, "Sub-team is required"),
+  subTeamId: z.string().min(1, "Team is required"),
   category: z.string().optional(),
   assetTag: z.string().optional(),
   serialNumber: z.string().optional(),

@@ -121,7 +121,7 @@ export function NotificationsPopover({
                 </div>
                 <p className="text-[13px] font-medium text-foreground">No notifications</p>
                 <p className="text-[12px] text-faint mt-1 max-w-[260px]">
-                  Updates from your sub-teams and assignments will appear here.
+                  Updates from your teams and assignments will appear here.
                 </p>
               </div>
             ) : (

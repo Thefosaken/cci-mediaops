@@ -56,9 +56,9 @@ export function buildChecklist(state: OnboardingState): ChecklistItem[] {
     },
     {
       id: "sub-team",
-      label: "Join a sub-team",
+      label: "Join a team",
       description: "Pick the teams you serve in — a lead will approve.",
-      href: "/sub-teams",
+      href: "/teams",
       done: state.hasSubTeam || state.hasSubmittedJoinRequest,
     },
     {

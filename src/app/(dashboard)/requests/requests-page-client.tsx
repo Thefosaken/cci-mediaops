@@ -105,7 +105,7 @@ const SYSTEM_VIEWS: SavedView[] = [
   },
   {
     id: "by-team",
-    name: "By sub-team",
+    name: "By team",
     system: true,
     config: {
       layout: "board",
@@ -268,7 +268,7 @@ export function RequestsPageClient({
     // in that case, so `form.requestingUnit` would be empty.
     const unit = defaultUnit ?? form.requestingUnit
     if (!form.title.trim() || !unit.trim() || form.subTeamIds.length === 0) {
-      toastError("Add a title, requesting unit, and at least one sub-team.")
+      toastError("Add a title, requesting unit, and at least one team.")
       return
     }
     setLoading(true)
@@ -303,7 +303,7 @@ export function RequestsPageClient({
         const { error: routingError } = await supabase.from("request_sub_teams").insert(
           form.subTeamIds.map((st) => ({ request_id: request.id, sub_team_id: st }))
         )
-        if (routingError) throw new Error(`Request saved, but routing to sub-teams failed: ${routingError.message}`)
+        if (routingError) throw new Error(`Request saved, but routing to teams failed: ${routingError.message}`)
       }
 
       /*
@@ -480,7 +480,7 @@ export function RequestsPageClient({
         open={showNew}
         onClose={() => clear("new")}
         title="New request"
-        description="Submit a media request. It'll be routed to the sub-teams you choose."
+        description="Submit a media request. It'll be routed to the teams you choose."
         size="lg"
         footer={
           <>
@@ -501,7 +501,7 @@ export function RequestsPageClient({
               a unit for (no sub-team) still get the picker.
             */}
             {defaultUnit ? (
-              <FormField label="Requesting unit" helper="Taken from your sub-team">
+              <FormField label="Requesting unit" helper="Taken from your team">
                 <Input value={defaultUnit} readOnly className="text-muted" tabIndex={-1} />
               </FormField>
             ) : (
@@ -560,11 +560,11 @@ export function RequestsPageClient({
                 placeholder="Select due date"
               />
             </FormField>
-            <FormField label="Route to sub-teams" required helper="Pick one or more" className="sm:col-span-2">
+            <FormField label="Route to teams" required helper="Pick one or more" className="sm:col-span-2">
               <Combobox values={form.subTeamIds}
                 onChange={(v) => setForm({ ...form, subTeamIds: v })}
                 options={subTeams.map((s) => ({ value: s.id, label: s.name }))}
-                placeholder="Select sub-teams…" />
+                placeholder="Select teams…" />
             </FormField>
           </div>
           <FormField label="Description" helper="What do you need and why?">

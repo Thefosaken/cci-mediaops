@@ -22,7 +22,7 @@ export async function createSubTeam(data: { campusId: string; name: string; desc
     .eq("status", "active")
     .maybeSingle()
   const role = (membership as unknown as { roles?: { name?: string } } | null)?.roles?.name
-  if (role !== "super_admin") return { error: "Only super admins can create sub-teams." }
+  if (role !== "super_admin") return { error: "Only super admins can create teams." }
 
   const { error } = await supabase.from("sub_teams").insert({
     campus_id: data.campusId,
@@ -30,7 +30,7 @@ export async function createSubTeam(data: { campusId: string; name: string; desc
     description: data.description,
   })
   if (error) return { error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -38,7 +38,7 @@ export async function updateSubTeam(id: string, data: Record<string, unknown>) {
   const supabase = await createClient()
   const { error } = await supabase.from("sub_teams").update(data).eq("id", id)
   if (error) return { error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -50,7 +50,7 @@ export async function addSubTeamMember(subTeamId: string, userId: string, roleId
     role_id: roleId,
   })
   if (error) return { error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -85,7 +85,7 @@ export async function removeSubTeamMember(subTeamId: string, userId: string) {
     .eq("sub_team_id", subTeamId)
     .eq("user_id", userId)
   if (error) return { error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -105,6 +105,6 @@ export async function assignSubTeamLead(subTeamId: string, userId: string) {
       .eq("user_id", userId)
     if (error) return { error: error.message }
   }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }

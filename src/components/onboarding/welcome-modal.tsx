@@ -58,7 +58,7 @@ export function WelcomeModal({ name, shouldShow }: WelcomeModalProps) {
         <Highlight
           icon={<Inbox />}
           title="Submit & track requests"
-          body="Need a video, design, or sound support? Submit a request and route it to the right sub-team."
+          body="Need a video, design, or sound support? Submit a request and route it to the right team."
         />
         <Highlight
           icon={<CalendarCheck />}
@@ -67,8 +67,8 @@ export function WelcomeModal({ name, shouldShow }: WelcomeModalProps) {
         />
         <Highlight
           icon={<Users />}
-          title="Join a sub-team"
-          body="Pick the sub-teams you serve in. A lead will approve, then you'll see their work."
+          title="Join a team"
+          body="Pick the teams you serve in. A lead will approve, then you'll see their work."
         />
       </div>
 

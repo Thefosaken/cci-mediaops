@@ -413,9 +413,9 @@ export function IncidentsPageClient({
               options={[{ value: "", label: "No event" }, ...events.map((e) => ({ value: e.id, label: e.title }))]}
               searchable={events.length > 6} />
           </FormField>
-          <FormField label="Related sub-team">
+          <FormField label="Related team">
             <Select value={form.subTeamId} onChange={(v) => setForm({ ...form, subTeamId: v })}
-              options={[{ value: "", label: "No sub-team" }, ...subTeams.map((s) => ({ value: s.id, label: s.name }))]} />
+              options={[{ value: "", label: "No team" }, ...subTeams.map((s) => ({ value: s.id, label: s.name }))]} />
           </FormField>
           <FormField label="What happened?" required className="sm:col-span-2">
             <Textarea value={form.description} autoFocus
@@ -501,7 +501,7 @@ function IncidentDetail({ incident: inc }: { incident: Incident }) {
           ) : null}
         </DataItem>
         <DataItem label="Event">{inc.events?.title}</DataItem>
-        <DataItem label="Sub-team">{inc.sub_teams?.name}</DataItem>
+        <DataItem label="Team">{inc.sub_teams?.name}</DataItem>
         <DataItem label="Reported">
           <span className="tabular-nums">{format(new Date(inc.created_at), "MMM d, yyyy 'at' h:mm a")}</span>
         </DataItem>

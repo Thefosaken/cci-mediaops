@@ -129,7 +129,7 @@ export default async function DashboardPage() {
         description={
           (counts.pendingRequests + counts.unconfirmedAssignments + counts.openIncidents > 0)
             ? `You have ${counts.pendingRequests} pending requests, ${counts.unconfirmedAssignments} unconfirmed assignments, and ${counts.openIncidents} open incidents.`
-            : "All caught up. Nothing pending across your sub-teams."
+            : "All caught up. Nothing pending across your teams."
         }
         badge={
           <Badge variant="muted" size="sm">
@@ -351,7 +351,7 @@ export default async function DashboardPage() {
                   variant="compact"
                   icon={<Inbox />}
                   title="Inbox zero"
-                  description="No pending requests across all sub-teams."
+                  description="No pending requests across all teams."
                 />
               </CardContent>
             ) : (
@@ -459,12 +459,12 @@ export default async function DashboardPage() {
         {/* Sub-teams strip */}
         {subTeams && subTeams.length > 0 && (
           <Card>
-            <SectionTitle title="Sub-teams" href="/sub-teams" hrefLabel="Manage teams" />
+            <SectionTitle title="Teams" href="/teams" hrefLabel="Manage teams" />
             <div className="px-5 pb-5 grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
               {subTeams.map((team) => (
                 <Link
                   key={team.id}
-                  href={`/sub-teams?id=${team.id}`}
+                  href={`/teams?id=${team.id}`}
                   className="rounded-md border border-border bg-surface hover:bg-surface-hover hover:border-border-strong transition-colors px-3 py-2.5 text-center group"
                 >
                   <div className="text-[12.5px] font-medium text-foreground truncate">

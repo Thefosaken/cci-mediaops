@@ -25,7 +25,7 @@ export async function requestSubTeamJoin(
   const { data: existing } = await supabase
     .from("sub_team_memberships").select("id")
     .eq("sub_team_id", subTeamId).eq("user_id", profile.id).maybeSingle()
-  if (existing) return { success: false, error: "You're already a member of this sub-team" }
+  if (existing) return { success: false, error: "You're already a member of this team" }
 
   // Check for existing pending request
   const { data: pending } = await supabase
@@ -44,7 +44,7 @@ export async function requestSubTeamJoin(
   // Notify the sub-team leads (in-app + email)
   await notifyLeadsOfJoinRequest(subTeamId, profile.full_name ?? profile.id)
 
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -96,7 +96,7 @@ async function notifyLeadsOfJoinRequest(subTeamId: string, requesterName: string
     user_id: uid,
     type: "user_invited",
     title: `${requesterName} wants to join ${team.name}`,
-    body: "Review the request in the sub-team page.",
+    body: "Review the request in the team page.",
     entity_type: "sub_team",
     entity_id: subTeamId,
   }))
@@ -162,7 +162,7 @@ export async function approveJoinRequest(requestId: string): Promise<Result> {
 
   // Notify the requester
   const teamName =
-    (req.sub_team as unknown as { name?: string } | null)?.name ?? "the sub-team"
+    (req.sub_team as unknown as { name?: string } | null)?.name ?? "the team"
   const user =
     (req.user as unknown as { full_name?: string | null; email?: string | null } | null) ?? null
 
@@ -185,7 +185,7 @@ export async function approveJoinRequest(requestId: string): Promise<Result> {
     })
   }
 
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -203,7 +203,7 @@ export async function rejectJoinRequest(requestId: string): Promise<Result> {
     .eq("id", requestId)
     .eq("status", "pending")
   if (error) return { success: false, error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -222,7 +222,7 @@ export async function cancelMyJoinRequest(requestId: string): Promise<Result> {
     .eq("user_id", profile.id)
     .eq("status", "pending")
   if (error) return { success: false, error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 

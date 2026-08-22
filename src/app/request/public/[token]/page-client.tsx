@@ -215,12 +215,12 @@ export function PublicRequestForm({ token, subTeams }: { token: string; subTeams
                   required
                 />
               </FormField>
-              <FormField label="Route to sub-teams" required helper="Select one or more teams" className="sm:col-span-2">
+              <FormField label="Route to teams" required helper="Select one or more teams" className="sm:col-span-2">
                 <Combobox
                   values={form.subTeamIds}
                   onChange={(v) => setForm({ ...form, subTeamIds: v })}
                   options={subTeams.map((st) => ({ value: st.id, label: st.name }))}
-                  placeholder="Select sub-teams…"
+                  placeholder="Select teams…"
                 />
               </FormField>
               <FormField label="Request title" required className="sm:col-span-2">

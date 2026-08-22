@@ -86,7 +86,7 @@ export default async function ReportsPage() {
     <div className="flex flex-col">
       <PageHeader
         title="Reports"
-        description="Operational health across all sub-teams"
+        description="Operational health across all teams"
         icon={<BarChart3 />}
         badge={<Badge variant="muted" size="sm">Last 28 days</Badge>}
       />
@@ -181,15 +181,15 @@ export default async function ReportsPage() {
         <Card>
           <div className="flex items-center justify-between px-5 py-3 border-b border-border">
             <div>
-              <h2 className="text-[13px] font-semibold text-foreground">Sub-team request load</h2>
-              <p className="text-[11.5px] text-faint">Requests received per sub-team (last 28 days)</p>
+              <h2 className="text-[13px] font-semibold text-foreground">Team request load</h2>
+              <p className="text-[11.5px] text-faint">Requests received per team (last 28 days)</p>
             </div>
-            <Link href="/sub-teams" className="text-[12px] font-medium text-muted hover:text-foreground transition-colors inline-flex items-center gap-1">
-              All sub-teams <ArrowRight className="h-3 w-3" />
+            <Link href="/teams" className="text-[12px] font-medium text-muted hover:text-foreground transition-colors inline-flex items-center gap-1">
+              All teams <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
           {subTeamActivity.length === 0 ? (
-            <div className="p-6 text-center text-[13px] text-faint">No sub-teams to compare yet.</div>
+            <div className="p-6 text-center text-[13px] text-faint">No teams to compare yet.</div>
           ) : (
             <ul className="divide-y divide-border">
               {subTeamActivity.map((st) => {
@@ -198,7 +198,7 @@ export default async function ReportsPage() {
                 return (
                   <li key={st.id}>
                     <Link
-                      href={`/sub-teams?id=${st.id}`}
+                      href={`/teams?id=${st.id}`}
                       className="flex items-center gap-3 px-5 py-3 hover:bg-surface-hover transition-colors"
                     >
                       <span className="text-[13px] font-medium text-foreground w-32 truncate">{st.name}</span>

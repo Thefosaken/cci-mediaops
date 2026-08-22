@@ -73,7 +73,7 @@ export function CommandPalette({
       { id: "nav-calendar", label: "Go to Calendar", icon: <Calendar />, group: "Navigation", keywords: ["events", "schedule"], perform: () => go("/calendar") },
       { id: "nav-requests", label: "Go to Requests", icon: <Inbox />, group: "Navigation", keywords: ["inbox", "media", "task"], perform: () => go("/requests") },
       { id: "nav-runsheets", label: "Go to Run Sheets", icon: <ScrollText />, group: "Navigation", keywords: ["cue", "service"], perform: () => go("/run-sheets") },
-      { id: "nav-subteams", label: "Go to Sub-Teams", icon: <Users />, group: "Navigation", keywords: ["teams", "members"], perform: () => go("/sub-teams") },
+      { id: "nav-subteams", label: "Go to Teams", icon: <Users />, group: "Navigation", keywords: ["teams", "members", "sub-teams"], perform: () => go("/teams") },
       { id: "nav-equipment", label: "Go to Equipment", icon: <Wrench />, group: "Navigation", keywords: ["inventory", "gear"], perform: () => go("/equipment") },
       { id: "nav-approvals", label: "Go to Approvals", icon: <ClipboardCheck />, group: "Navigation", keywords: ["review"], perform: () => go("/approvals") },
       { id: "nav-incidents", label: "Go to Incidents", icon: <AlertTriangle />, group: "Navigation", keywords: ["issues", "problem"], perform: () => go("/incidents") },

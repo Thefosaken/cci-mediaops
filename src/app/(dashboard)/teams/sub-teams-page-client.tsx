@@ -202,7 +202,7 @@ export function SubTeamsPageClient({
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
       {showTeamSwitcher && (
         <PageHeader
-          title="Sub-teams"
+          title="Teams"
           description="Members, workload and standing of each media team"
           icon={<Users />}
         />
@@ -229,7 +229,7 @@ export function SubTeamsPageClient({
                 <EmptyState
                   variant="compact"
                   icon={<Users />}
-                  title="No sub-teams"
+                  title="No teams"
                   description="Create one in Settings."
                 />
               </div>

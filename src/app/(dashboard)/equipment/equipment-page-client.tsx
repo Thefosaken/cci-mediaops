@@ -133,7 +133,7 @@ export function EquipmentPageClient({
 
   async function handleAdd() {
     if (!form.name.trim() || !form.subTeamId) {
-      toastError("Name and sub-team are required")
+      toastError("Name and team are required")
       return
     }
     setLoading(true)
@@ -164,7 +164,7 @@ export function EquipmentPageClient({
     <div className="flex flex-col">
       <PageHeader
         title="Equipment"
-        description="Track gear, custodians, and condition across sub-teams"
+        description="Track gear, custodians, and condition across teams"
         icon={<Wrench />}
         actions={
           <Button size="sm" onClick={() => set({ new: "1" })}>
@@ -193,9 +193,9 @@ export function EquipmentPageClient({
           <Select
             value={teamFilter}
             onChange={setTeamFilter}
-            options={[{ value: "all", label: "All sub-teams" }, ...subTeams.map((s) => ({ value: s.id, label: s.name }))]}
+            options={[{ value: "all", label: "All teams" }, ...subTeams.map((s) => ({ value: s.id, label: s.name }))]}
             className="!w-[180px] [&>button]:h-8"
-            aria-label="Sub-team filter"
+            aria-label="Team filter"
           />
         </ToolbarGroup>
         <span className="text-[11.5px] text-faint tabular-nums">{filtered.length} {filtered.length === 1 ? "item" : "items"}</span>
@@ -215,7 +215,7 @@ export function EquipmentPageClient({
               <thead className="bg-surface-subtle/40">
                 <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-faint">
                   <th className="px-4 py-2.5">Item</th>
-                  <th className="px-4 py-2.5 hidden md:table-cell">Sub-team</th>
+                  <th className="px-4 py-2.5 hidden md:table-cell">Team</th>
                   <th className="px-4 py-2.5 hidden lg:table-cell">Custodian</th>
                   <th className="px-4 py-2.5">Condition</th>
                   <th className="px-4 py-2.5">Availability</th>
@@ -295,7 +295,7 @@ export function EquipmentPageClient({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="e.g. Shure SM58 Microphone" />
           </FormField>
-          <FormField label="Sub-team" required>
+          <FormField label="Team" required>
             <Select value={form.subTeamId} onChange={(v) => setForm({ ...form, subTeamId: v })}
               options={[{ value: "", label: "Select…" }, ...subTeams.map((s) => ({ value: s.id, label: s.name }))]} />
           </FormField>
@@ -662,7 +662,7 @@ function EquipmentDetail({ item }: { item: EquipmentRow }) {
   return (
     <div className="space-y-5">
       <DataList>
-        <DataItem label="Sub-team">{item.sub_teams?.name}</DataItem>
+        <DataItem label="Team">{item.sub_teams?.name}</DataItem>
         <DataItem label="Category">{item.category}</DataItem>
         <DataItem label="Asset tag">
           {item.asset_tag ? <span className="font-mono">#{item.asset_tag}</span> : null}

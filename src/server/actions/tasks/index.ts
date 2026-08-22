@@ -23,7 +23,7 @@ export async function createTask(input: TaskInput) {
     event_id: parsed.data.eventId,
   })
   if (error) return { error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -34,7 +34,7 @@ export async function assignTask(taskId: string, userId: string) {
     .update({ assigned_user_id: userId })
     .eq("id", taskId)
   if (error) return { error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -45,7 +45,7 @@ export async function updateTaskStatus(taskId: string, status: string) {
     .update({ status })
     .eq("id", taskId)
   if (error) return { error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -57,7 +57,7 @@ export async function addTaskComment(taskId: string, body: string) {
     body,
   })
   if (error) return { error: error.message }
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }
 
@@ -80,6 +80,6 @@ export async function submitTaskForApproval(
     .update({ status: "awaiting_review" })
     .eq("id", taskId)
 
-  revalidatePath("/sub-teams")
+  revalidatePath("/teams")
   return { success: true }
 }

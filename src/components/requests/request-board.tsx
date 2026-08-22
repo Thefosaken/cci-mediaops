@@ -221,7 +221,7 @@ export function RequestBoard({
       <EmptyState
         icon={<Columns3 />}
         title="Choose a field to group by"
-        description="The board turns grouping into columns. Pick a field — status, sub-team, priority — and the columns appear."
+        description="The board turns grouping into columns. Pick a field — status, team, priority — and the columns appear."
       />
     )
   }

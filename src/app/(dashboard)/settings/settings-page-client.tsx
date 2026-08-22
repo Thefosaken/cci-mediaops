@@ -59,7 +59,7 @@ const SECTIONS = [
   { id: "appearance", label: "Appearance", icon: Palette, adminOnly: false },
   { id: "notifications", label: "Notifications", icon: Bell, adminOnly: false },
   { id: "campus", label: "Campus", icon: Building, adminOnly: true },
-  { id: "sub-teams", label: "Sub-teams", icon: Users, adminOnly: true },
+  { id: "sub-teams", label: "Teams", icon: Users, adminOnly: true },
   { id: "public-links", label: "Public request links", icon: Link2, adminOnly: true },
   { id: "users", label: "Users & access", icon: Shield, adminOnly: true },
 ] as const
@@ -273,7 +273,7 @@ function NotificationsSection() {
           { key: "assignments", label: "Assignments", desc: "When you're assigned to a service role." },
           { key: "approvals", label: "Approvals", desc: "When work is awaiting your approval." },
           { key: "deadlines", label: "Due dates", desc: "Reminders for tasks and request due dates." },
-          { key: "incidents", label: "Incidents", desc: "When new incidents are reported in your sub-teams." },
+          { key: "incidents", label: "Incidents", desc: "When new incidents are reported in your teams." },
           { key: "digest", label: "Weekly digest", desc: "Weekly summary email of your team's activity." },
         ].map((p) => (
           <div key={p.key} className="flex items-center justify-between gap-3 px-5 py-3">
@@ -362,7 +362,7 @@ function SubTeamsSection({ subTeams }: { subTeams: SubTeam[] }) {
       })
       if (error) throw new Error(error.message)
       setNewName(""); setNewDesc("")
-      success("Sub-team created"); router.refresh()
+      success("Team created"); router.refresh()
     } catch (err) {
       toastError(err instanceof Error ? err.message : "Failed")
     } finally { setSaving(false) }
@@ -378,11 +378,11 @@ function SubTeamsSection({ subTeams }: { subTeams: SubTeam[] }) {
 
   return (
     <div className="space-y-5">
-      <SectionTitle title="Sub-teams" description="Configure media sub-teams for this campus." />
+      <SectionTitle title="Teams" description="Configure media teams for this campus." />
 
       <div className="rounded-xl border border-border bg-surface p-5 space-y-3">
         <p className="text-[12px] font-semibold uppercase tracking-wider text-faint">
-          New sub-team
+          New team
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr_auto] gap-2">
           <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name" />
@@ -394,7 +394,7 @@ function SubTeamsSection({ subTeams }: { subTeams: SubTeam[] }) {
       </div>
 
       {subTeams.length === 0 ? (
-        <EmptyState icon={<Users />} title="No sub-teams yet" description="Create one above." />
+        <EmptyState icon={<Users />} title="No teams yet" description="Create one above." />
       ) : (
         <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
           {subTeams.map((st) => (

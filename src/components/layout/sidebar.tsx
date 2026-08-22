@@ -24,14 +24,14 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 }
 
 const PRIMARY_NAV = ["/dashboard", "/calendar", "/requests", "/run-sheets"]
-const MANAGE_NAV = ["/sub-teams", "/equipment", "/approvals", "/incidents", "/reports", "/settings"]
+const MANAGE_NAV = ["/teams", "/equipment", "/approvals", "/incidents", "/reports", "/settings"]
 
 const HREF_TO_RESOURCE: Record<string, string> = {
   "/dashboard": "system",
   "/calendar": "events",
   "/requests": "requests",
   "/run-sheets": "run_sheets",
-  "/sub-teams": "sub_teams",
+  "/teams": "sub_teams",
   "/equipment": "equipment",
   "/approvals": "approvals",
   "/incidents": "incidents",
@@ -48,7 +48,7 @@ function countForHref(href: string, counts?: ShellCounts): number {
     case "/run-sheets": return counts.unconfirmedAssignments
     case "/incidents": return counts.openIncidents
     case "/equipment": return counts.equipmentIssues
-    case "/sub-teams": return counts.pendingJoinRequests
+    case "/teams": return counts.pendingJoinRequests
     case "/settings": return counts.pendingUsers
     default: return 0
   }
@@ -99,7 +99,7 @@ export function Sidebar({
   const manageItems = NAV_ITEMS.filter(
     (i) => MANAGE_NAV.includes(i.href) && canView(i.href)
   ).map((i) =>
-    i.href === "/sub-teams" && !seesStructure && myTeamName
+    i.href === "/teams" && !seesStructure && myTeamName
       ? { ...i, label: myTeamName }
       : i
   )

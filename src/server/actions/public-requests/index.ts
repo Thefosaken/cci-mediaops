@@ -73,7 +73,7 @@ export async function submitPublicRequest(
   const selectedSubTeamIds = parsed.data.subTeamIds
   const allTeams = await getActiveSubTeams()
   const isValid = selectedSubTeamIds.every((id) => allTeams.some((t) => t.id === id))
-  if (!isValid) return { error: "Please select a valid sub-team." }
+  if (!isValid) return { error: "Please select a valid team." }
 
   const trackingId = generateTrackingId()
 
