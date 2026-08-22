@@ -27,6 +27,7 @@ import { DataList, DataItem } from "@/components/ui/data-list"
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar } from "@/components/ui/avatar"
+import { OcrScanButton } from "@/components/equipment/ocr-scan-button"
 import { format } from "date-fns"
 import {
   assignEquipmentToEvent,
@@ -307,9 +308,12 @@ export function EquipmentPageClient({
             <Input value={form.assetTag} onChange={(e) => setForm({ ...form, assetTag: e.target.value })}
               placeholder="e.g. CCI-001" className="font-mono" />
           </FormField>
-          <FormField label="Serial number">
-            <Input value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
-              placeholder="Serial / IMEI" className="font-mono" />
+          <FormField label="Serial number" helper="Type it, or scan the label from a photo">
+            <div className="flex items-center gap-2">
+              <Input value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
+                placeholder="Serial / IMEI" className="font-mono flex-1" />
+              <OcrScanButton onResult={(text) => setForm((f) => ({ ...f, serialNumber: text }))} />
+            </div>
           </FormField>
           <FormField label="Condition">
             <Select value={form.conditionStatus} onChange={(v) => setForm({ ...form, conditionStatus: v })}
