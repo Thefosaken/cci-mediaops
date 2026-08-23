@@ -5,7 +5,8 @@ import { Camera, CheckCircle2, Loader2, AlertTriangle, RotateCcw, Aperture } fro
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { downscaleForUpload } from "@/lib/ocr/downscale"
-import { ocrSerialImage, submitScanResult } from "@/server/actions/scan"
+import { recognizeBlob } from "@/lib/ocr/recognize"
+import { submitScanResult } from "@/server/actions/scan"
 
 type Phase = "idle" | "camera" | "scanning" | "review" | "sending" | "done"
 
@@ -114,18 +115,15 @@ export function ScanClient({
   async function runOcr(blob: Blob) {
     setPhase("scanning")
     setError(null)
-    const fd = new FormData()
-    fd.append("image", blob, "scan.jpg")
-    fd.append("token", token)
-    const r = await ocrSerialImage(fd)
-    if ("error" in r) {
-      setError(r.error)
+    try {
+      const result = await recognizeBlob(blob)
+      setText(result)
+      setPhase("review")
+      if (!result) setError("Couldn't read any text — try again, closer and steadier.")
+    } catch {
+      setError("Couldn't read the label. Try again.")
       setPhase("idle")
-      return
     }
-    setText(r.text)
-    setPhase("review")
-    if (!r.text) setError("Couldn't read any text — try again, closer and steadier.")
   }
 
   async function send() {

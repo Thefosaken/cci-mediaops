@@ -8,7 +8,8 @@ import { Modal } from "@/components/ui/modal"
 import { useToast } from "@/lib/toast/toast-context"
 import { createClient } from "@/lib/supabase/client"
 import { downscaleForUpload } from "@/lib/ocr/downscale"
-import { createScanSession, ocrSerialImage } from "@/server/actions/scan"
+import { recognizeBlob } from "@/lib/ocr/recognize"
+import { createScanSession } from "@/server/actions/scan"
 
 /**
  * Read an equipment serial from a photo.
@@ -87,12 +88,9 @@ export function OcrScanButton({
     setMobileScanning(true)
     try {
       const blob = await downscaleForUpload(file)
-      const fd = new FormData()
-      fd.append("image", blob, "scan.jpg")
-      const r = await ocrSerialImage(fd)
-      if ("error" in r) { toastError(r.error); return }
-      if (!r.text) { toastError("Couldn't read any text — try a clearer, closer photo."); return }
-      onResult(r.text)
+      const text = await recognizeBlob(blob)
+      if (!text) { toastError("Couldn't read any text — try a clearer, closer photo."); return }
+      onResult(text)
       success("Serial scanned — double-check it's correct")
     } catch (err) {
       toastError(err instanceof Error ? err.message : "Scan failed")
