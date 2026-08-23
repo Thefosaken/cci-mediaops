@@ -16,7 +16,12 @@ type ExtraCaps = MediaTrackCapabilities & {
   zoom?: { min: number; max: number; step?: number }
   focusMode?: string[]
 }
-type ExtraConstraint = { torch?: boolean; zoom?: number; focusMode?: string }
+type ExtraConstraint = {
+  torch?: boolean
+  zoom?: number
+  focusMode?: string
+  pointsOfInterest?: { x: number; y: number }[]
+}
 
 export function ScanClient({
   token,
@@ -37,6 +42,7 @@ export function ScanClient({
   const [torchSupported, setTorchSupported] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
   const [zoom, setZoom] = useState<{ min: number; max: number; step: number; value: number } | null>(null)
+  const [focusRing, setFocusRing] = useState<{ x: number; y: number } | null>(null)
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -63,6 +69,21 @@ export function ScanClient({
   async function onZoom(value: number) {
     await applyTrack({ zoom: value })
     setZoom((z) => (z ? { ...z, value } : z))
+  }
+
+  // Tap the preview to focus at that point. Uses normalized (0–1) coordinates
+  // per the MediaTrack spec; falls back silently where the device ignores it.
+  async function tapFocus(e: React.PointerEvent<HTMLDivElement>) {
+    if (!trackRef.current) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const px = e.clientX - rect.left
+    const py = e.clientY - rect.top
+    setFocusRing({ x: px, y: py })
+    window.setTimeout(() => setFocusRing(null), 900)
+    await applyTrack({
+      focusMode: "single-shot",
+      pointsOfInterest: [{ x: px / rect.width, y: py / rect.height }],
+    })
   }
 
   // Always release the camera when the page goes away.
@@ -243,18 +264,29 @@ export function ScanClient({
         ) : phase === "camera" ? (
           <Card>
             <div className="space-y-3">
-              <div className="relative overflow-hidden rounded-xl bg-black">
+              <div
+                className="relative overflow-hidden rounded-xl bg-black cursor-crosshair"
+                onPointerDown={tapFocus}
+              >
                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                 <video ref={videoRef} playsInline muted className="w-full aspect-[3/4] object-cover" />
                 {torchSupported && (
                   <button
                     type="button"
-                    onClick={toggleTorch}
+                    onClick={(e) => { e.stopPropagation(); toggleTorch() }}
+                    onPointerDown={(e) => e.stopPropagation()}
                     aria-label={torchOn ? "Turn off flashlight" : "Turn on flashlight"}
                     className="absolute right-2 top-2 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white backdrop-blur"
                   >
                     {torchOn ? <Zap className="h-4 w-4" /> : <ZapOff className="h-4 w-4" />}
                   </button>
+                )}
+                {focusRing && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90 animate-ping"
+                    style={{ left: focusRing.x, top: focusRing.y }}
+                  />
                 )}
               </div>
 
@@ -275,7 +307,7 @@ export function ScanClient({
               )}
 
               <p className="text-center text-[12.5px] text-muted">
-                Hold ~15cm away so it focuses, fill the frame with the label, then capture.
+                Hold ~15cm away, tap the label to focus, then capture.
               </p>
               {error && <p className="text-center text-[12.5px] text-danger">{error}</p>}
               <Button fullWidth size="lg" onClick={capture}>
