@@ -15,6 +15,8 @@ interface ModalProps {
   size?: "sm" | "default" | "lg" | "xl"
   /** When true, the modal cannot be closed by clicking the backdrop or pressing Escape. */
   blocking?: boolean
+  /** Raise above another open modal (for a modal opened from inside a modal). */
+  elevated?: boolean
 }
 
 /**
@@ -37,6 +39,7 @@ export function Modal({
   footer,
   size = "default",
   blocking = false,
+  elevated = false,
 }: ModalProps) {
   const titleId = React.useId()
   const descId = React.useId()
@@ -84,7 +87,8 @@ export function Modal({
     <div
       aria-hidden={!open}
       className={cn(
-        "fixed inset-0 z-[90]",
+        "fixed inset-0",
+        elevated ? "z-[100]" : "z-[90]",
         open ? "pointer-events-auto" : "pointer-events-none"
       )}
     >

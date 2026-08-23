@@ -127,6 +127,7 @@ export function OcrScanButton({
         title="Scan with your phone"
         description="Point your phone camera at this code to open the scanner."
         size="sm"
+        elevated
         footer={<Button variant="ghost" onClick={() => { setQrOpen(false); setToken(null) }}>Cancel</Button>}
       >
         <div className="flex flex-col items-center gap-4 py-2">
