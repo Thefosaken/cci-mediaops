@@ -19,7 +19,8 @@ const PUBLIC_PREFIXES = [
   "/auth",
   "/request/public",
   "/request/track",
-  "/live"
+  "/live",
+  "/scan"
 ] as const
 
 export async function updateSession(request: NextRequest) {

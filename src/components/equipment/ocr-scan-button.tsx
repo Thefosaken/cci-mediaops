@@ -1,15 +1,22 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { ScanLine } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { QRCodeSVG } from "qrcode.react"
+import { ScanLine, Loader2, Smartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Modal } from "@/components/ui/modal"
 import { useToast } from "@/lib/toast/toast-context"
+import { createClient } from "@/lib/supabase/client"
+import { recognizeSerial } from "@/lib/ocr/recognize"
+import { createScanSession } from "@/server/actions/scan"
 
 /**
- * On-device OCR for reading a serial/asset label off a photo. Runs entirely
- * in the browser via tesseract.js — no API key, no cost, and the image never
- * leaves the device. tesseract.js is dynamically imported so its ~large wasm
- * core only loads when someone actually scans.
+ * Read an equipment serial from a photo.
+ *
+ * On a phone the camera is right here, so scanning happens on-device inline.
+ * On a desktop we hand off to the phone: a QR opens /scan/<token> on the
+ * phone, which reads the serial on-device and writes it back; we're subscribed
+ * to that session over Realtime and fill the field the moment it lands.
  */
 export function OcrScanButton({
   onResult,
@@ -19,34 +26,76 @@ export function OcrScanButton({
   label?: string
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const [scanning, setScanning] = useState(false)
-  const [progress, setProgress] = useState(0)
   const { error: toastError, success } = useToast()
 
+  const [mobileScanning, setMobileScanning] = useState(false)
+  const [progress, setProgress] = useState(0)
+
+  const [qrOpen, setQrOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [token, setToken] = useState<string | null>(null)
+  const [url, setUrl] = useState("")
+
+  // Keep the latest onResult without resubscribing the Realtime channel.
+  const onResultRef = useRef(onResult)
+  useEffect(() => { onResultRef.current = onResult }, [onResult])
+
+  function isMobile() {
+    if (typeof navigator === "undefined") return false
+    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.maxTouchPoints > 1 && window.innerWidth < 1024)
+  }
+
+  async function handleClick() {
+    if (isMobile()) { inputRef.current?.click(); return }
+    setCreating(true)
+    const r = await createScanSession()
+    setCreating(false)
+    if ("error" in r) { toastError(r.error); return }
+    setToken(r.token)
+    setUrl(`${window.location.origin}/scan/${r.token}`)
+    setQrOpen(true)
+  }
+
+  // Desktop: listen for the phone's write.
+  useEffect(() => {
+    if (!qrOpen || !token) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`scan-${token}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "scan_sessions", filter: `token=eq.${token}` },
+        (payload) => {
+          const result = (payload.new as { result?: string | null }).result
+          if (result) {
+            onResultRef.current(result)
+            success("Serial received from your phone")
+            setQrOpen(false)
+            setToken(null)
+          }
+        },
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [qrOpen, token, success])
+
+  // Mobile: scan on-device right here.
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    e.target.value = "" // let the same photo be picked again
+    e.target.value = ""
     if (!file) return
-    setScanning(true)
+    setMobileScanning(true)
     setProgress(0)
     try {
-      const { default: Tesseract } = await import("tesseract.js")
-      const { data } = await Tesseract.recognize(file, "eng", {
-        logger: (m) => {
-          if (m.status === "recognizing text") setProgress(Math.round(m.progress * 100))
-        },
-      })
-      const text = cleanSerial(data.text)
-      if (!text) {
-        toastError("Couldn't read any text — try a clearer, closer photo.")
-        return
-      }
+      const text = await recognizeSerial(file, setProgress)
+      if (!text) { toastError("Couldn't read any text — try a clearer, closer photo."); return }
       onResult(text)
       success("Serial scanned — double-check it's correct")
     } catch (err) {
       toastError(err instanceof Error ? err.message : "Scan failed")
     } finally {
-      setScanning(false)
+      setMobileScanning(false)
       setProgress(0)
     }
   }
@@ -65,24 +114,39 @@ export function OcrScanButton({
         type="button"
         variant="secondary"
         size="sm"
-        loading={scanning}
-        onClick={() => inputRef.current?.click()}
+        loading={mobileScanning || creating}
+        onClick={handleClick}
       >
-        {!scanning && <ScanLine className="h-3.5 w-3.5" />}
-        {scanning ? (progress ? `${progress}%` : "Scanning…") : label}
+        {!mobileScanning && !creating && <ScanLine className="h-3.5 w-3.5" />}
+        {mobileScanning ? (progress ? `${progress}%` : "Scanning…") : label}
       </Button>
+
+      <Modal
+        open={qrOpen}
+        onClose={() => { setQrOpen(false); setToken(null) }}
+        title="Scan with your phone"
+        description="Point your phone camera at this code to open the scanner."
+        size="sm"
+        footer={<Button variant="ghost" onClick={() => { setQrOpen(false); setToken(null) }}>Cancel</Button>}
+      >
+        <div className="flex flex-col items-center gap-4 py-2">
+          {url && (
+            <div className="rounded-xl bg-white p-3">
+              <QRCodeSVG value={url} size={196} />
+            </div>
+          )}
+          <ol className="w-full space-y-1.5 text-[12.5px] text-muted">
+            <li>1. Open your phone camera and point it at the code.</li>
+            <li>2. Tap the link, then photograph the serial label.</li>
+            <li>3. It appears here automatically — no typing.</li>
+          </ol>
+          <p className="flex items-center gap-1.5 text-[12px] text-faint">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Waiting for your phone…
+            <Smartphone className="h-3.5 w-3.5" />
+          </p>
+        </div>
+      </Modal>
     </>
   )
-}
-
-// A serial/asset label is usually one alphanumeric token. Pick the line with
-// the most serial-like characters, strip OCR punctuation noise, and cap the
-// length so a misfire can't dump a whole paragraph into the field.
-function cleanSerial(raw: string): string {
-  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-  if (lines.length === 0) return ""
-  const best = lines
-    .map((l) => ({ l, score: (l.match(/[A-Za-z0-9-]/g) ?? []).length }))
-    .sort((a, b) => b.score - a.score)[0].l
-  return best.replace(/[^A-Za-z0-9\- /]/g, "").replace(/\s+/g, " ").trim().slice(0, 64)
 }
