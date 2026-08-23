@@ -21,23 +21,22 @@ export async function recognizeSerial(
 }
 
 // Downscale to at most `maxWidth` px wide (keeping aspect) and grayscale it,
-// returning a JPEG data URL. Uses an <img> + object URL rather than
-// createImageBitmap, which is unreliable on iOS Safari — if it fails there we'd
-// silently fall back to the full 12MP image and OOM the tab. Throws on failure
-// so the caller surfaces a real error instead of trying the giant original.
+// returning a JPEG data URL. Throws on failure so the caller surfaces a real
+// error instead of feeding the full 12MP original to the wasm core.
 async function prepareImage(file: File | Blob, maxWidth: number): Promise<string> {
-  const url = URL.createObjectURL(file)
+  const { source, cleanup } = await decodeScaled(file, maxWidth)
   try {
-    const img = await loadImage(url)
-    const scale = Math.min(1, maxWidth / (img.naturalWidth || maxWidth))
-    const w = Math.max(1, Math.round((img.naturalWidth || maxWidth) * scale))
-    const h = Math.max(1, Math.round((img.naturalHeight || maxWidth) * scale))
+    const iw = "naturalWidth" in source ? source.naturalWidth : source.width
+    const ih = "naturalHeight" in source ? source.naturalHeight : source.height
+    const scale = Math.min(1, maxWidth / (iw || maxWidth))
+    const w = Math.max(1, Math.round((iw || maxWidth) * scale))
+    const h = Math.max(1, Math.round((ih || maxWidth) * scale))
     const canvas = document.createElement("canvas")
     canvas.width = w
     canvas.height = h
     const ctx = canvas.getContext("2d")
     if (!ctx) throw new Error("Canvas not supported")
-    ctx.drawImage(img, 0, 0, w, h)
+    ctx.drawImage(source, 0, 0, w, h)
     // Grayscale in place — smaller to encode and easier for OCR.
     const pixels = ctx.getImageData(0, 0, w, h)
     const d = pixels.data
@@ -48,7 +47,37 @@ async function prepareImage(file: File | Blob, maxWidth: number): Promise<string
     ctx.putImageData(pixels, 0, 0)
     return canvas.toDataURL("image/jpeg", 0.85)
   } finally {
+    cleanup()
+  }
+}
+
+// Decode the image, downscaling during decode where possible. createImageBitmap
+// with resizeWidth decodes straight to the target size without a full-resolution
+// intermediate — the difference between ~5MB and ~50MB of peak memory for a
+// phone photo, which is what was OOM-ing the tab. Falls back to an <img> element
+// where the resize options aren't honoured.
+async function decodeScaled(
+  file: File | Blob,
+  maxWidth: number,
+): Promise<{ source: CanvasImageSource & { width?: number; height?: number; naturalWidth?: number; naturalHeight?: number }; cleanup: () => void }> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bmp = await createImageBitmap(file, {
+        resizeWidth: maxWidth,
+        resizeQuality: "medium",
+      } as ImageBitmapOptions)
+      return { source: bmp, cleanup: () => bmp.close?.() }
+    } catch {
+      // fall through to the <img> path
+    }
+  }
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await loadImage(url)
+    return { source: img, cleanup: () => URL.revokeObjectURL(url) }
+  } catch (e) {
     URL.revokeObjectURL(url)
+    throw e
   }
 }
 
