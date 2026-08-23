@@ -6,11 +6,11 @@ import { cleanSerial } from "./clean"
 // the earlier out-of-memory crashes came from decoding full-resolution phone
 // photos, which no longer happens.
 export async function recognizeBlob(
-  blob: Blob,
+  image: Blob | HTMLCanvasElement | HTMLImageElement,
   onProgress?: (percent: number) => void,
 ): Promise<string> {
   const { default: Tesseract } = await import("tesseract.js")
-  const { data } = await Tesseract.recognize(blob, "eng", {
+  const { data } = await Tesseract.recognize(image, "eng", {
     logger: (m) => {
       if (m.status === "recognizing text" && onProgress) onProgress(Math.round(m.progress * 100))
     },

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Camera, CheckCircle2, Loader2, AlertTriangle, RotateCcw, Aperture } from "lucide-react"
+import { Camera, CheckCircle2, Loader2, AlertTriangle, RotateCcw, Aperture, Zap, ZapOff, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { downscaleForUpload } from "@/lib/ocr/downscale"
@@ -9,6 +9,14 @@ import { recognizeBlob } from "@/lib/ocr/recognize"
 import { submitScanResult } from "@/server/actions/scan"
 
 type Phase = "idle" | "camera" | "scanning" | "review" | "sending" | "done"
+
+// torch/zoom/focusMode aren't in the standard TS DOM types yet.
+type ExtraCaps = MediaTrackCapabilities & {
+  torch?: boolean
+  zoom?: { min: number; max: number; step?: number }
+  focusMode?: string[]
+}
+type ExtraConstraint = { torch?: boolean; zoom?: number; focusMode?: string }
 
 export function ScanClient({
   token,
@@ -21,14 +29,40 @@ export function ScanClient({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const trackRef = useRef<MediaStreamTrack | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [phase, setPhase] = useState<Phase>("idle")
   const [text, setText] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [torchSupported, setTorchSupported] = useState(false)
+  const [torchOn, setTorchOn] = useState(false)
+  const [zoom, setZoom] = useState<{ min: number; max: number; step: number; value: number } | null>(null)
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
+    trackRef.current = null
+    setTorchOn(false)
+  }
+
+  async function applyTrack(constraint: ExtraConstraint) {
+    const track = trackRef.current
+    if (!track) return
+    try {
+      await track.applyConstraints({ advanced: [constraint] } as MediaTrackConstraints)
+    } catch {
+      // constraint unsupported — ignore
+    }
+  }
+
+  async function toggleTorch() {
+    await applyTrack({ torch: !torchOn })
+    setTorchOn((v) => !v)
+  }
+
+  async function onZoom(value: number) {
+    await applyTrack({ zoom: value })
+    setZoom((z) => (z ? { ...z, value } : z))
   }
 
   // Always release the camera when the page goes away.
@@ -43,21 +77,43 @@ export function ScanClient({
   }, [phase])
 
   // Live camera avoids ever decoding a full-resolution photo — modern phones
-  // shoot 50–200MP, and just decoding that file OOMs the tab. A 1080p video
-  // frame is ~2MP, so capture + canvas is tiny.
+  // shoot 50–200MP, and just decoding that file OOMs the tab. We request a high
+  // stream resolution (for legible small text) and turn on continuous autofocus,
+  // which a raw stream doesn't do by default — that's why the text looked soft.
   async function startCamera() {
     setError(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 2560 },
+          height: { ideal: 1440 },
         },
         audio: false,
       })
       streamRef.current = stream
+      const track = stream.getVideoTracks()[0]
+      trackRef.current = track
       setPhase("camera")
+
+      try {
+        const caps = (track.getCapabilities?.() ?? {}) as ExtraCaps
+        if (caps.focusMode?.includes("continuous")) {
+          await applyTrack({ focusMode: "continuous" })
+        }
+        setTorchSupported(!!caps.torch)
+        if (caps.zoom) {
+          const settings = track.getSettings() as MediaTrackSettings & { zoom?: number }
+          setZoom({
+            min: caps.zoom.min,
+            max: caps.zoom.max,
+            step: caps.zoom.step ?? 0.1,
+            value: settings.zoom ?? caps.zoom.min,
+          })
+        }
+      } catch {
+        // capabilities unsupported — carry on with the default stream
+      }
     } catch {
       // No camera / permission denied → fall back to the photo picker.
       fileRef.current?.click()
@@ -68,7 +124,9 @@ export function ScanClient({
     const video = videoRef.current
     if (!video || !video.videoWidth) return
     try {
-      const maxW = 1280
+      // Capture at up to 1920px — more detail for OCR of small serial text,
+      // still tiny next to a full-resolution phone photo.
+      const maxW = 1920
       const scale = Math.min(1, maxW / video.videoWidth)
       const w = Math.round(video.videoWidth * scale)
       const h = Math.round(video.videoHeight * scale)
@@ -85,10 +143,9 @@ export function ScanClient({
         d[i] = d[i + 1] = d[i + 2] = g
       }
       ctx.putImageData(px, 0, 0)
-      const blob = await new Promise<Blob | null>((r) => canvas.toBlob((b) => r(b), "image/jpeg", 0.85))
       stopCamera()
-      if (!blob) throw new Error("Capture failed")
-      await runOcr(blob)
+      // Hand the canvas straight to OCR — no JPEG re-encode, sharper text.
+      await runOcr(canvas)
     } catch {
       stopCamera()
       setError("Capture failed. Try again.")
@@ -112,11 +169,11 @@ export function ScanClient({
     }
   }
 
-  async function runOcr(blob: Blob) {
+  async function runOcr(image: Blob | HTMLCanvasElement) {
     setPhase("scanning")
     setError(null)
     try {
-      const result = await recognizeBlob(blob)
+      const result = await recognizeBlob(image)
       setText(result)
       setPhase("review")
       if (!result) setError("Couldn't read any text — try again, closer and steadier.")
@@ -186,12 +243,39 @@ export function ScanClient({
         ) : phase === "camera" ? (
           <Card>
             <div className="space-y-3">
-              <div className="overflow-hidden rounded-xl bg-black">
+              <div className="relative overflow-hidden rounded-xl bg-black">
                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                 <video ref={videoRef} playsInline muted className="w-full aspect-[3/4] object-cover" />
+                {torchSupported && (
+                  <button
+                    type="button"
+                    onClick={toggleTorch}
+                    aria-label={torchOn ? "Turn off flashlight" : "Turn on flashlight"}
+                    className="absolute right-2 top-2 grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white backdrop-blur"
+                  >
+                    {torchOn ? <Zap className="h-4 w-4" /> : <ZapOff className="h-4 w-4" />}
+                  </button>
+                )}
               </div>
+
+              {zoom && zoom.max > zoom.min && (
+                <div className="flex items-center gap-2 px-1">
+                  <Search className="h-3.5 w-3.5 text-faint" />
+                  <input
+                    type="range"
+                    min={zoom.min}
+                    max={zoom.max}
+                    step={zoom.step}
+                    value={zoom.value}
+                    onChange={(e) => onZoom(Number(e.target.value))}
+                    className="w-full accent-[var(--primary)]"
+                    aria-label="Zoom"
+                  />
+                </div>
+              )}
+
               <p className="text-center text-[12.5px] text-muted">
-                Fill the frame with the serial label, hold steady, then capture.
+                Hold ~15cm away so it focuses, fill the frame with the label, then capture.
               </p>
               {error && <p className="text-center text-[12.5px] text-danger">{error}</p>}
               <Button fullWidth size="lg" onClick={capture}>
