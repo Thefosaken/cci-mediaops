@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient, adminClientConfigured } from "@/lib/supabase/admin"
+import { cleanSerial } from "@/lib/ocr/clean"
 
 /**
  * Desktop-to-phone serial scanning. The desktop creates a session and shows a
@@ -61,6 +62,43 @@ export async function submitScanResult(
   if (error) return { error: error.message }
 
   return { success: true }
+}
+
+/**
+ * Server-side OCR. The phone uploads a small (downscaled) image and we read the
+ * serial here — nothing heavy runs on the device. Authorized either by a signed-in
+ * user (the mobile-direct path) or a valid scan token (the public /scan page).
+ */
+export async function ocrSerialImage(
+  formData: FormData,
+): Promise<{ text: string } | { error: string }> {
+  const token = (formData.get("token") as string | null) ?? null
+  const image = formData.get("image")
+  if (!(image instanceof Blob)) return { error: "No image received" }
+  if (image.size > 3_000_000) return { error: "Image too large" }
+
+  // Authorize: a signed-in user, or a valid scan token.
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    if (!token) return { error: "Not authorized" }
+    const check = await getScanSession(token)
+    if (!check.valid || check.expired) return { error: "This scan link is invalid or expired." }
+  }
+
+  try {
+    const buffer = Buffer.from(await image.arrayBuffer())
+    const { createWorker } = await import("tesseract.js")
+    const worker = await createWorker("eng", 1, { cachePath: "/tmp" })
+    try {
+      const { data } = await worker.recognize(buffer)
+      return { text: cleanSerial(data.text) }
+    } finally {
+      await worker.terminate()
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "OCR failed" }
+  }
 }
 
 // Read a session's status/validity for the public phone page (service-role).

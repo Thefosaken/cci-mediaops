@@ -4,8 +4,8 @@ import { useRef, useState } from "react"
 import { Camera, CheckCircle2, Loader2, AlertTriangle, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { recognizeSerial } from "@/lib/ocr/recognize"
-import { submitScanResult } from "@/server/actions/scan"
+import { downscaleForUpload } from "@/lib/ocr/downscale"
+import { ocrSerialImage, submitScanResult } from "@/server/actions/scan"
 
 type Phase = "capture" | "scanning" | "review" | "sending" | "done"
 
@@ -20,7 +20,6 @@ export function ScanClient({
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [phase, setPhase] = useState<Phase>("capture")
-  const [progress, setProgress] = useState(0)
   const [text, setText] = useState("")
   const [error, setError] = useState<string | null>(null)
 
@@ -29,13 +28,21 @@ export function ScanClient({
     e.target.value = ""
     if (!file) return
     setPhase("scanning")
-    setProgress(0)
     setError(null)
     try {
-      const result = await recognizeSerial(file, setProgress)
-      setText(result)
+      const blob = await downscaleForUpload(file)
+      const fd = new FormData()
+      fd.append("image", blob, "scan.jpg")
+      fd.append("token", token)
+      const r = await ocrSerialImage(fd)
+      if ("error" in r) {
+        setError(r.error)
+        setPhase("capture")
+        return
+      }
+      setText(r.text)
       setPhase("review")
-      if (!result) setError("Couldn't read any text — try again, closer and steadier.")
+      if (!r.text) setError("Couldn't read any text — try again, closer and steadier.")
     } catch {
       setError("Scan failed. Try again.")
       setPhase("capture")
@@ -104,7 +111,7 @@ export function ScanClient({
             {phase === "scanning" ? (
               <div className="flex flex-col items-center gap-3 py-8 text-center">
                 <Loader2 className="h-7 w-7 animate-spin text-muted" />
-                <p className="text-[13px] text-muted">Reading the label… {progress ? `${progress}%` : ""}</p>
+                <p className="text-[13px] text-muted">Reading the label…</p>
               </div>
             ) : phase === "review" ? (
               <div className="space-y-4">

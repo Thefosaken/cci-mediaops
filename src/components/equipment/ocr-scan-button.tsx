@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Modal } from "@/components/ui/modal"
 import { useToast } from "@/lib/toast/toast-context"
 import { createClient } from "@/lib/supabase/client"
-import { recognizeSerial } from "@/lib/ocr/recognize"
-import { createScanSession } from "@/server/actions/scan"
+import { downscaleForUpload } from "@/lib/ocr/downscale"
+import { createScanSession, ocrSerialImage } from "@/server/actions/scan"
 
 /**
  * Read an equipment serial from a photo.
@@ -29,7 +29,6 @@ export function OcrScanButton({
   const { error: toastError, success } = useToast()
 
   const [mobileScanning, setMobileScanning] = useState(false)
-  const [progress, setProgress] = useState(0)
 
   const [qrOpen, setQrOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -80,23 +79,25 @@ export function OcrScanButton({
     return () => { supabase.removeChannel(channel) }
   }, [qrOpen, token, success])
 
-  // Mobile: scan on-device right here.
+  // Mobile: shrink the photo here and OCR it on the server.
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ""
     if (!file) return
     setMobileScanning(true)
-    setProgress(0)
     try {
-      const text = await recognizeSerial(file, setProgress)
-      if (!text) { toastError("Couldn't read any text — try a clearer, closer photo."); return }
-      onResult(text)
+      const blob = await downscaleForUpload(file)
+      const fd = new FormData()
+      fd.append("image", blob, "scan.jpg")
+      const r = await ocrSerialImage(fd)
+      if ("error" in r) { toastError(r.error); return }
+      if (!r.text) { toastError("Couldn't read any text — try a clearer, closer photo."); return }
+      onResult(r.text)
       success("Serial scanned — double-check it's correct")
     } catch (err) {
       toastError(err instanceof Error ? err.message : "Scan failed")
     } finally {
       setMobileScanning(false)
-      setProgress(0)
     }
   }
 
@@ -118,7 +119,7 @@ export function OcrScanButton({
         onClick={handleClick}
       >
         {!mobileScanning && !creating && <ScanLine className="h-3.5 w-3.5" />}
-        {mobileScanning ? (progress ? `${progress}%` : "Scanning…") : label}
+        {mobileScanning ? "Scanning…" : label}
       </Button>
 
       <Modal
